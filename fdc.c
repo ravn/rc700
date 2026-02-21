@@ -113,6 +113,16 @@ static int fdc_parameter_count[] = {
   1, 1,  /* 31 */
 };
 
+// Find sector by physical sector number (from FDC R register).
+// Returns pointer to sector, or NULL if not found.
+static struct sector *find_sector(struct track *track, int R) {
+  int i;
+  for (i = 0; i < track->num_sectors; ++i) {
+    if (track->sectors[i].physical == R) return &track->sectors[i];
+  }
+  return NULL;
+}
+
 #define MAX_FDC_DRIVES         4
 #define MAX_FDC_COMMAND_BYTES  9
 #define MAX_FDC_RESULT_BYTES   7

@@ -73,3 +73,10 @@ int rcterm_read_clipboard() {
   return -1;
 }
 
+/* On macOS, rc700.c defines main as SDL_main for SDL2 ABI compatibility.
+   The VT100 build does not link SDL2, so SDL's #define main SDL_main is
+   absent.  Provide a plain main() that calls through to SDL_main(). */
+#ifdef __APPLE__
+extern int SDL_main(int argc, char *argv[]);
+int main(int argc, char *argv[]) { return SDL_main(argc, argv); }
+#endif

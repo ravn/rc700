@@ -27,6 +27,7 @@ char *floppy[MAX_FLOPPIES];
 int num_floppies = 0;
 char *harddisk = NULL;
 char *ftpdir = NULL;
+char *memdump_file = NULL;
 
 // Emulate a 4 Mhz Z80 CPU with 50 Hz screen refresh rate.
 #define CPU_CLOCK_FREQUENCY   4000000
@@ -87,6 +88,138 @@ void set_emulation_speed(int percent) {
   printf("speed: %d%%, %d ms/frame\n", percent, ms_per_frame);
 }
 
+// Inject keystrokes into PIO keyboard buffer.
+extern void pio_receive(int dev, char *data, int size);
+
+static void dump_ram(char *core);
+
+static void dump_display(const char *label, int lines, int base) {
+  // Scan entire 2000-byte circular buffer for non-blank lines
+  fprintf(stderr, "--- %s (0x%04X) ---\n", label, base);
+  int total = (lines <= 25) ? lines : 25;
+  for (int row = 0; row < total; row++) {
+    int last = -1;
+    for (int col = 79; col >= 0; col--) {
+      unsigned char c = ram[base + row * 80 + col];
+      if (c != 0x20 && c != 0x00) { last = col; break; }
+    }
+    if (last < 0) continue;
+    for (int col = 0; col <= last; col++) {
+      unsigned char c = ram[base + row * 80 + col];
+      fprintf(stderr, "%c", (c >= 0x20 && c < 0x7f) ? c : '.');
+    }
+    fprintf(stderr, "\n");
+  }
+  fprintf(stderr, "---\n");
+}
+
+// Test automation state machine.
+// Injects keystrokes via PIO Port A, which on the physical RC702 is connected
+// to an intelligent keyboard presenting 8-bit characters on a parallel interface.
+//
+// Each phase: wait delay_frames (at 50 Hz), optionally dump screen, then inject
+// cmd one character every 10 frames (5 chars/sec).  NULL cmd = final dump+exit.
+//
+// To switch back to a simple DIR test replace test_phases with:
+//   {{0, "DIR\r", NULL}, {500, NULL, "FINAL (0xF800)"}};
+struct test_phase {
+  int delay_frames;        // wait this many frames before injecting
+  const char *cmd;         // keystrokes to inject, or NULL for final wait+exit
+  const char *dump_label;  // if non-NULL, dump screen at start of inject window
+};
+
+static struct test_phase test_phases[] = {
+  // Launch COMAL80 from CP/M A> prompt
+  {0,   "COMAL80\r",                   NULL},
+  // Wait 8s for COMAL80 to load, dump its title screen, then clear program
+  {400, "NEW\r",                        "COMAL80 STARTED (0xF800)"},
+  // Enter hello world program line by line
+  {50,  "10 PRINT \"HELLO WORLD\"\r",  NULL},
+  {50,  "20 END\r",                     NULL},
+  // Run it
+  {50,  "RUN\r",                        NULL},
+  // Wait 4s for output, dump screen showing HELLO WORLD, then exit
+  {200, "BYE\r",                        "AFTER RUN (0xF800)"},
+  // Wait 4s for CP/M to return, final dump + exit
+  {200, NULL,                           "FINAL (0xF800)"},
+};
+#define NUM_PHASES ((int)(sizeof(test_phases) / sizeof(test_phases[0])))
+
+static int test_state = 0;
+static int test_timer = 0;
+static int boot_detected = 0;
+static int phase_idx = 0;
+static int phase_pos = 0;
+
+static void test_step(void) {
+  unsigned pc = (unsigned)(PC - ram);
+  test_timer++;
+
+  switch (test_state) {
+    case 0: // Wait for boot: PC in CP/M region (>= 0xC000), halt, or timeout
+      if (pc == 0x7062) {
+        dump_display("HALTED", 3, 0x7800);
+        test_state = 99;
+      } else if (pc >= 0xC000 && !boot_detected) {
+        boot_detected = 1;
+        test_state = 1;
+        test_timer = 0;
+      } else if (test_timer >= 1500) {
+        fprintf(stderr, "=== BOOT TIMEOUT (30s, PC=0x%04X) ===\n", pc);
+        dump_display("TIMEOUT (0x7800)", 25, 0x7800);
+        dump_display("TIMEOUT (0xF800)", 25, 0xF800);
+        test_state = 99;
+      }
+      break;
+
+    case 1: // Wait 2s for display to settle after CP/M starts
+      if (test_timer >= 100) {
+        dump_display("BOOT SCREEN (0xF800)", 10, 0xF800);
+        phase_idx = 0;
+        phase_pos = 0;
+        test_state = 2;
+        test_timer = 0;
+      }
+      break;
+
+    case 2: { // Phase runner: wait delay_frames, dump, inject cmd
+      struct test_phase *p = &test_phases[phase_idx];
+      int it = test_timer - p->delay_frames;  // inject_timer: <0 = still waiting
+
+      if (p->cmd == NULL) {
+        // Final wait phase: dump + exit when delay expires
+        if (it >= 0) {
+          if (p->dump_label) dump_display(p->dump_label, 25, 0xF800);
+          test_state = 99;
+        }
+        break;
+      }
+
+      // Dump screen at first frame of inject window (it == 1)
+      if (it == 1 && p->dump_label) {
+        dump_display(p->dump_label, 25, 0xF800);
+      }
+
+      // Inject one character every 10 frames once delay has elapsed
+      if (it >= 0 && it % 10 == 0 && p->cmd[phase_pos]) {
+        char c = p->cmd[phase_pos++];
+        fprintf(stderr, "INJECT[%d]: 0x%02X '%c'\n", phase_idx,
+                (unsigned char)c, c >= 0x20 ? c : '.');
+        pio_receive(0, &c, 1);
+      }
+
+      // Advance to next phase when cmd exhausted
+      if (p->cmd[phase_pos] == '\0') {
+        phase_idx++;
+        phase_pos = 0;
+        test_timer = 0;
+        if (phase_idx >= NUM_PHASES) test_state = 99;
+      }
+      break;
+    }
+  }
+}
+
 // CPU poll handler.
 void cpu_poll(int cycles) {
   int overhead;
@@ -95,6 +228,13 @@ void cpu_poll(int cycles) {
   quantum += cycles;
   if (quantum < CYCLES_PER_FRAME) return;
   t = clock();
+
+  if (test_state < 99) test_step();
+  if (test_state == 99) {
+    if (memdump_file) dump_ram(memdump_file);
+    fprintf(stderr, "=== TEST COMPLETE ===\n");
+    exit(0);
+  }
 
   if (pio_poll() || crt_poll()) {
     overhead = (clock() - t) * 1000 / CLOCKS_PER_SEC;
@@ -181,6 +321,7 @@ void usage(char *pgm) {
   printf("-bootf       (force boot from floppy)\n");
   printf("-maxi        (8\" maxi disks)\n");
   printf("-ftp DIR     (ftp directory)\n");
+  printf("-memdump FILE (dump 64K RAM on test exit)\n");
 }
 
 #ifdef __APPLE__
@@ -220,6 +361,8 @@ int main(int argc, char *argv[]) {
         harddisk = argv[i++ + 1];
       } else if (strcmp(argv[i], "-ftp") == 0 && i + 1 < argc) {
         ftpdir = argv[i++ + 1];
+      } else if (strcmp(argv[i], "-memdump") == 0 && i + 1 < argc) {
+        memdump_file = argv[i++ + 1];
       } else {
         usage(argv[0]);
         exit(1);
