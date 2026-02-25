@@ -1,0 +1,150 @@
+How to Convert a Raw Binary Disk Image to IMD
+==============================================
+
+This guide describes how to convert a flat binary floppy disk dump to an IMD
+file usable by the RC700 emulator, using the RC703_DIV_ROA.bin conversion as
+a worked example.
+
+
+Step 1: Identify the disk geometry
+-----------------------------------
+
+Calculate possible geometries from the file size:
+
+  size = cylinders * sides * sectors_per_track * bytes_per_sector
+
+Common sizes:
+  143,360 = 35 * 2 * 16 * 128   (RC 5.25" SD)
+  256,256 = 77 * 1 * 26 * 128   (IBM 8" SD)
+  319,488 = mixed format         (RC CPM DD)
+  819,200 = 80 * 2 * 10 * 512   (RC703 5.25" HD)
+
+For an unknown size, enumerate all factorizations with plausible values:
+  cylinders: 35, 40, 77, 80
+  sides: 1, 2
+  sectors: 8, 9, 10, 16, 26
+  sector size: 128, 256, 512, 1024
+
+
+Step 2: Determine the binary data layout
+-----------------------------------------
+
+Most raw dumps use one of these orderings:
+
+  Interleaved sides (most common):
+    T0S0, T0S1, T1S0, T1S1, T2S0, T2S1, ...
+    offset = (cyl * sides * spt + side * spt + sector) * sector_size
+
+  Sequential sides:
+    All side 0 tracks, then all side 1 tracks
+    offset = (side * cyls * spt + cyl * spt + sector) * sector_size
+
+To determine which: scan for the first non-0xE5 byte and check whether the
+data distribution matches the expected pattern for each layout.
+
+
+Step 3: Choose IMD encoding parameters
+---------------------------------------
+
+  5.25" single-density (FM):    mode 0 (500 kbps) or mode 2 (250 kbps)
+  5.25" double-density (MFM):   mode 5 (250 kbps) for 40-track
+  5.25" high-density (MFM):     mode 3 (500 kbps) for 80-track
+  8" single-density (FM):       mode 0 (500 kbps)
+  8" double-density (MFM):      mode 3 (500 kbps)
+
+  Sector size code: 0=128, 1=256, 2=512, 3=1024
+
+  The emulator's format_disk_image() defaults to 300 kbps, but the actual
+  transfer rate doesn't affect emulation behavior.
+
+
+Step 4: For known formats, use raw2imd
+---------------------------------------
+
+  make raw2imd
+  ./raw2imd rc  output.imd side0.bin side1.bin
+  ./raw2imd cpm output.imd side0.bin side1.bin [t0s0.bin t0s1.bin]
+  ./raw2imd ibm output.imd side0.bin side1.bin
+
+  raw2imd expects separate files per side. If you have an interleaved dump,
+  split it first, or use the Python method below.
+
+
+Step 5: For new formats, generate IMD with Python
+--------------------------------------------------
+
+  #!/usr/bin/env python3
+  import struct, time
+
+  # Adjust these for your disk format
+  CYLS = 80
+  SIDES = 2
+  SPT = 10
+  SECTOR_SIZE = 512
+  SECTOR_SIZE_CODE = 2   # 512 = 128 * 2^2
+  MODE = 3               # 500 kbps MFM (5.25" HD)
+
+  data = open("input.bin", "rb").read()
+  expected = CYLS * SIDES * SPT * SECTOR_SIZE
+  assert len(data) == expected, f"Size mismatch: {len(data)} != {expected}"
+
+  with open("output.imd", "wb") as f:
+      now = time.localtime()
+      header = (f"IMD 1.18: {now.tm_mday:2d}/{now.tm_mon:2d}/{now.tm_year:4d} "
+                f"{now.tm_hour:02d}:{now.tm_min:02d}:{now.tm_sec:02d}\r\n"
+                f"Converted from input.bin\x1a")
+      f.write(header.encode("ascii"))
+
+      for cyl in range(CYLS):
+          for side in range(SIDES):
+              # 5-byte track header
+              f.write(struct.pack("BBBBB", MODE, cyl, side, SPT, SECTOR_SIZE_CODE))
+
+              # Physical sector map (0-based)
+              for s in range(SPT):
+                  f.write(struct.pack("B", s))
+
+              # Sector data
+              for s in range(SPT):
+                  offset = (cyl * SIDES * SPT + side * SPT + s) * SECTOR_SIZE
+                  sector_data = data[offset:offset + SECTOR_SIZE]
+
+                  if all(b == sector_data[0] for b in sector_data):
+                      f.write(struct.pack("BB", 0x02, sector_data[0]))
+                  else:
+                      f.write(struct.pack("B", 0x01))
+                      f.write(sector_data)
+
+
+Step 6: Verify the conversion
+------------------------------
+
+  make imdinfo imd2bin
+
+  # Check geometry and sector layout:
+  ./imdinfo output.imd
+
+  # Round-trip verify (must produce identical file):
+  ./imd2bin output.imd /tmp/roundtrip.bin
+  diff input.bin /tmp/roundtrip.bin
+
+
+Step 7: Load in the emulator
+-----------------------------
+
+  # As boot disk (drive A:):
+  ./rc700-vt100 output.imd
+
+  # As data disk (drive B:) alongside boot disk:
+  ./rc700-vt100 rccpm22.imd output.imd
+
+  Note: The CP/M BIOS on the boot disk determines how all drives are
+  accessed. If B: has a different geometry than A:, the BIOS won't be
+  able to read it. Use the cpmdisk tool or Python to extract files instead.
+
+
+Appendix: Extracting CP/M files from a raw binary
+--------------------------------------------------
+
+If you need to extract files without booting the emulator, you need to
+know the CP/M disk parameter block (DPB) values. See doc/cpm-extraction.txt.

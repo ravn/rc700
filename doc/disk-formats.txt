@@ -1,0 +1,84 @@
+Known Disk Formats
+==================
+
+This document lists the floppy disk formats supported by the RC700 emulator
+and its associated tools.
+
+
+RC format (5.25" single-density)
+--------------------------------
+
+  Geometry:     35 cylinders, 2 sides, 16 sectors/track, 128 bytes/sector
+  Raw size:     143,360 bytes
+  Encoding:     FM, 500 kbps (IMD mode 0)
+  Sectors:      0-based physical numbering
+  Tool:         raw2imd rc
+
+
+CPM format (rccpm22.imd - 5.25" double-density, mixed)
+-------------------------------------------------------
+
+  Track 0 side 0:  16 sectors/track, 128 bytes/sector, FM
+  Track 0 side 1:  16 sectors/track, 256 bytes/sector, MFM
+  Tracks 1-34:     9 sectors/track, 512 bytes/sector, MFM (both sides)
+  Raw size:        ~319,488 bytes
+  Encoding:        MFM, 300 kbps (IMD mode 4) for tracks 1+
+  Sectors:         0-based physical numbering
+  Tool:            raw2imd cpm
+
+  CP/M 2.2 parameters:
+    Block size:       2048
+    Sectors/track:    9 (logical, after track 0)
+    Reserved tracks:  4 (2 cylinders, counted as logical tracks)
+    Interleave:       {0, 2, 4, 6, 8, 1, 3, 5, 7}
+    Block numbers:    8-bit (DSM <= 255)
+
+
+IBM format (8" single-density)
+------------------------------
+
+  Geometry:     77 cylinders, 1 side, 26 sectors/track, 128 bytes/sector
+  Raw size:     256,256 bytes
+  Encoding:     FM, 500 kbps (IMD mode 0)
+  Sectors:      0-based physical numbering
+  DIP switch:   Requires -maxi flag (clears DIP switch bit 0x80)
+  Tool:         raw2imd ibm
+
+
+RC703 DIV ROA format (5.25" high-density, 80-track)
+----------------------------------------------------
+
+  Geometry:     80 cylinders, 2 sides, 10 sectors/track, 512 bytes/sector
+  Raw size:     819,200 bytes
+  Encoding:     MFM, 500 kbps (IMD mode 3) - 5.25" HD
+  Sectors:      0-based physical numbering
+  Tool:         Python script (see doc/bin2imd-howto.txt)
+
+  Binary layout (interleaved sides):
+    offset = (cylinder * 20 + side * 10 + sector) * 512
+
+  CP/M 2.2 parameters:
+    Block size:       2048 (4 sectors per block)
+    Sectors/track:    10
+    Reserved tracks:  4 (2 cylinders, counted as logical tracks)
+    Directory blocks: 4 (blocks 0-3, AL0=0xF0, AL1=0x00)
+    Interleave:       {0, 2, 4, 6, 8, 1, 3, 5, 7, 9} (2:1 skew)
+    Block numbers:    16-bit (DSM > 255, DSM ~= 389)
+    EXM:              0
+
+  Files found on RC703_DIV_ROA disk:
+    ROB358.MAC    28,672  RC700/RC703 autoload ROM source (Z80 asm, 1982)
+    ROB358.COM     2,048  Compiled autoload ROM binary
+    PHE358A.MAC   33,024  PROM/EPROM 358A source code
+    PHE358A.COM    2,048  Compiled PROM binary
+    PHE358A.PRN   77,440  Assembly listing
+    PHE358A.REL    2,432  Relocatable object file
+    PHE358A.BAK   33,024  Backup of PHE358A.MAC
+    ROE114.128    16,384  ROM image
+    ROE115.128    16,384  ROM image
+    ROB584.32      4,096  ROM image
+    STC001.32      4,096  ROM image
+
+  Note: This disk cannot be read from the emulator using the rccpm22 BIOS
+  because the BIOS expects 9 sectors/track with a different interleave.
+  Use the cpmdisk tool or Python extraction to access files.

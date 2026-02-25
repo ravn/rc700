@@ -1,0 +1,1387 @@
+	MACRO-80 3.44	09-Dec-81	PAGE	1
+
+
+                                ;************************************************************************
+                                ;*									*
+                                ;* AUTOLOAD-FILE FOR THE RC700 AND RC703 MICROCOMPUTER			*
+                                ;*  									*
+                                ;* REGNECENTRALEN OCTOBER 1982 JOS					*
+                                ;*									*
+                                ;* CHANGED BY STIG CHRISTENSEN D. 24-10-87                              *
+                                ;*                                                                      *
+                                ;* TO SUPPORT AUTOLOAD FROM MEMORYDISK INSTEAD OF HARDDISK              *
+                                ;*                                                                      *
+                                ;* AND TO LOAD CHARACTER GENERATOR SEM702                               *
+                                ;*                                                                      *
+                                ;************************************************************************ 
+                                .Z80
+                                ; GLOBAL CONSTANT DEFINITIONS 
+                                ;
+                                
+  0000                          COLOR	EQU	0	;SELECT COLOR CRT AUTOLOAD VERSION
+                                			;COLOR=0 MEANS SELECT NON-COLOR CRT AUTOLOAD VERSION
+                                			;
+                                			;
+  001E                          VERS    EQU     30      ;			
+  0800                          FMOVE	EQU	2048	;NUMBER OF BYTES IN PROM
+  0012                          FMOVS	EQU	MOVADR-BEGIN
+  2000                          ROM2	EQU	2000H	;ADDRESS OF TEST PROM 
+  0019                          RAMEN	EQU	019H	;ENABLE RAM PORT
+  0014                          SW1	EQU	014H	;MINI/MAXI SWITCH 
+  001C                          BIB	EQU	01CH	;BIB SOUND SWITCH
+                                
+                                
+                                ;MEMORY LAYOUT
+  B000                          TRK	EQU	0B000H	;ID COMAL READ TRACK COUNT
+                                
+  B003                          RSTAB	EQU	0B003H	;FLOPPY SAVE STATUS AREA
+  B00D                          ERFLAG	EQU	0B00DH	;HARD DISK ERROR FLAG
+  B00E                          SECTOR	EQU	0B00EH	;HARD DISK SECTOR READ COUNT
+  B00F                          MEMADR	EQU	0B00FH	;MEMORY ADDRESS POINTER (DMA)
+  B011                          REPTIM	EQU	0B011H	;REPEAT OPERATION INDICATOR
+  B020                          DSPSTR	EQU	0B020H	;DISPLAY MEMORY BUFFER
+  FFFF                          STACK	EQU    	0FFFFH	;STACK AREA BOTTOM ADDRESS
+                                ;
+                                
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-1
+
+
+                                
+                                ;*****************************************************************************
+                                ;  START OF PROM CODE. THE FIRST CODE BYTES WILL MOVE THE BOOTSTRAP CODE     *
+                                ;  IMAGE TO ADDRESS A000 AND FORWARD.                                        *
+                                ;*****************************************************************************
+                                
+                                		ORG 0	;START IN ADDRESS 0 ABS.
+  0000'   F3                    BEGIN:	DI		;
+  0001'   31 FFFF               	LD SP,STACK	;SET STACK AREA
+  0004'   21 0012               	LD HL,FMOVS	;FIRST BYTE TO BE MOVEN
+  0007'   11 A000               	LD DE,0A000H	;DESTINATION ADDRESS
+  000A'   01 07EE               	LD BC,FMOVE-FMOVS; NUMBER OF BYTES TO MOVE
+  000D'   ED B0                 	LDIR		;MOVE!
+  000F'   C3 A018               	JP AUTOL	;GO TO AUTOLOAD SECTION 
+  0012'                         MOVADR:
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-2
+
+
+                                
+                                .PHASE 0A000H
+                                ;*****************************************************************************
+                                ;*                                                                           *
+                                ;*    AUTO LOAD SECTION:					             *    
+                                ;*									     *
+                                ;*****************************************************************************
+  A000                          PRAM:			;ADRESS OF THE FIRST CODEBYTE AFTER MOVING 
+                                ;  INTERRUPT TABLE:
+  A000    A53A                  ITRTAB:	DW DUMINT	;     DUMMY
+  A002    A53D                  	DW KBINT 	;PIO: KEYBOARD	"NOTE MUST NOT BE CHANGED DUE
+                                			;                TO ID-COMAL" 
+  A004    A53A                  	DW DUMINT	;     DUMMY
+  A006    A53A                  	DW DUMINT	;     DUMMY
+  A008    A53A                  	DW DUMINT	;CTC2:WD1000
+  A00A    A53A                  	DW DUMINT	;     DUMMY
+  A00C    A53A                  	DW DUMINT	;     DUMMY
+  A00E    A53A                  	DW DUMINT	;     DUMMY
+  A010    A53A                  	DW DUMINT	;CTC: DUMMY
+  A012    A53A                  	DW DUMINT	;     DUMMY
+  A014    A56C                  	DW DISINT	;     DISPLAY
+  A016    A54D                  	DW FLPINT	;     FLOPPY
+                                PAGE      		      
+	MACRO-80 3.44	09-Dec-81	PAGE	1-3
+
+
+                                
+  A018    3E A0                 AUTOL:	LD A,HIGH(ITRTAB) 
+  A01A    ED 47                 	LD I,A		;SET INTERRUPT VECTOR REGISTER
+  A01C    ED 5E                 	IM 2		;INTERRUPT MODE 2
+                                
+                                ;INITIALIZATION OF Z80 PIO
+                                ;  PORT A: USED FOR KEYBOARD
+                                ;  PORT B: NOT USED DURING BOOTSTRAP
+                                ;
+  0012                          KEYCON	EQU	12H	;CONTROL PORT A
+  0010                          KEYDAT	EQU	10H	;DATA PORT A
+  004F                          MODIN	EQU	4FH	;PIO MODE =INPUT
+  0002                          KINT	EQU	02H	;PIO INTERRUPT VECTOR
+  0087                          PENINT 	EQU	87H	;PIO ENABLE INTERRUPT 
+  0007                          PDIINT	EQU	07H	;PIO DISABLE INTERRUPT 
+                                ;
+                                ;
+                                ;
+  A01E    3E 02                 	LD A,KINT	;SET KEYBOARD INT VEC.
+  A020    D3 12                 	OUT (KEYCON),A	; 
+  A022    3E 4F                 	LD A,MODIN	;
+  A024    D3 12                 	OUT (KEYCON),A	;SET INPUT MODE
+  A026    3E 87                 	LD A,PENINT	;
+  A028    D3 12                 	OUT (KEYCON),A  ;ENABLE KEYBOARD INTERRUPTS
+  A02A    DB 10                 	IN A,(KEYDAT)	;READ PIA DATA PORT
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-4
+
+
+                                
+                                ;INITIALIZATION OF THE AM9517 DMA CONTROLLER
+                                ;  CHANNEL0: MEMORY DISK
+                                ;  CHANNEL1: FLOPPY DISK CONTROLLER
+                                ;  CHANNEL2: DISPLAY CONTROLLER
+                                ;  CHANNEL3: NOT USED DURING BOOTSTRAP
+                                ;
+  00F0                          CH0ADR	EQU	0F0H	;ADDRESS REGISTER CHANNEL0
+  00F1                          WCREG0	EQU	0F1H	;WORD COUNT REGISTER CHANNEL0
+  00F2                          CH1ADR	EQU	0F2H	;ADDR REG CH1 
+  00F3                          WCREG1	EQU	0F3H	;WORD COUNT REG CH1
+  00F4                          CH2ADR	EQU	0F4H	;ADDR REG CH2
+  00F5                          WCREG2	EQU	0F5H	;WORD COUNT REG CH2
+  00F8                          DMACOM	EQU	0F8H	;DMA CONTROLLER COMMAND REGISTER 
+  00F9                          DMAREQ  EQU     0F9H    ;DMAREQ REGISTER
+  00FB                          DMAMOD	EQU	0FBH	;DMA CONTROLLER MODE REGISTER 
+  0010                          COMV	EQU	010H	;COMMAND VALUE 
+  0044                          MODE0	EQU	044H	;TRANSFER DISK TO MEMORY CH0
+  0045                          MODE1	EQU	045H	;TRANSFER DISK TO MEMORY CH1
+  005A                          MODE2	EQU	05AH	;TRANSFER MEMORY TO DISPLAY CH2(AUTOINITIALIZE)
+  004B                          MODE3   EQU     04BH    ;TRANSFER MEMORY TO DISPLAY (NOT USED)
+  00FC                          CLBP	EQU	0FCH	;CLEAR BYTE COUNTER REGISTER
+  000F                          DMAMSK	EQU	00FH	;SET ALL DMA CHANNELS MASKBITS
+  0000                          CLR0	EQU	000H	;CLEAR CH0 MASK BIT 
+  0001                          CLR1	EQU	001H	;CLEAR CH1 MASK BIT 
+  0002                          CLR2	EQU	002H	;CLEAR CH2 MASK BIT
+  00FF                          FULMSK	EQU	0FFH	;FULL MASK REGISTER
+  00FA                          SMSK	EQU	0FAH	;SINGLE MASK REGISTER
+  0004                          SET0	EQU	004H	;SET CH0 MASK BIT
+  0005                          SET1	EQU	005H	;SET CH1 MASK BIT
+                                ;
+  A02C    3E 10                 	LD A,COMV	;SELECT COMMAND OPTIONS
+  A02E    D3 F8                 	OUT (DMACOM),A	;
+  A030    3E 44                 	LD A,MODE0	;RAMDISK WRITE TO MEMORY
+  A032    D3 FB                 	OUT (DMAMOD),A 	; 
+  A034    3E 45                 	LD A,MODE1	;FLOPPY WRITE DISK TO MEMORY 
+  A036    D3 FB                 	OUT (DMAMOD),A 	; 
+  A038    3E 5A                 	LD A,MODE2	;CRT READ MEMORY TO CRT CONTROLLER(AUTO)
+  A03A    D3 FB                 	OUT (DMAMOD),A 	;
+  A03C    3E 4B                         LD A,MODE3      ;NOT USED
+  A03E    D3 FB                         OUT (DMAMOD),A  ;
+  A040    3E 0F                 	LD A,DMAMSK	;SET ALL MASK BITS
+  A042    D3 FF                 	OUT (FULMSK),A	;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-5
+
+
+                                
+                                ;CTC INITIALIZATION
+                                ;  CHANNEL0: NOT USED DURING BOOTSTRAP
+                                ;  CHANNEL1: NOT USED DURING BOOTSTRAP
+                                ;  CHANNEL2: INTERRUPT INPUT FOR DISPALY  
+                                ;  CHANNEL3: INTERRUPT INPUT FOR FLOPPY CONTROLLER
+                                ;
+  000C                          CTCCH0	EQU	0CH	;CHANNEL0 ADDRESS
+  000D                          CTCCH1	EQU	0DH	;CH1 
+  000E                          CTCCH2	EQU	0EH	;CH2
+  000F                          CTCCH3	EQU	0FH	;CH3
+  0010                          CTCINT	EQU	10H	;INTERRUPT VECTOR FOR CTC
+                                			;  DISPLAY INTERRUPT TABLE ENTRY =14H
+                                 			;  FLOPPY INTERRUPT TABLE ENTRY = 16H
+  00D7                          CTCMOD	EQU     0D7H	;MODE= INTERUPT AFTER ONE COUNT
+  0001                          CTCCNT	EQU	001H	;CTC COUNT = 1 
+  0003                          CTCRES	EQU	003H	;RESET CHANNEL COMMAND
+                                ; 
+                                ;
+  A044    3E 10                 	LD A,CTCINT	;SET CTC INTERRUPT VECTOR
+  A046    D3 0C                 	OUT (CTCCH0),A	;
+  A048    3E 03                 	LD A,CTCRES	;
+  A04A    D3 0C                 	OUT (CTCCH0),A	;RESET CHANNEL0
+  A04C    D3 0D                 	OUT (CTCCH1),A	;RESET CHANNEL1 
+  A04E    3E D7                 	LD A,CTCMOD	;SET CHANNEL2 MODE 
+  A050    D3 0E                 	OUT (CTCCH2),A	;
+  A052    3E 01                 	LD A,CTCCNT	;SET CHANNEL2 COUNT
+  A054    D3 0E                 	OUT (CTCCH2),A	; 
+  A056    3E D7                 	LD A,CTCMOD	;SET CHANNEL3 MODE  
+  A058    D3 0F                 	OUT (CTCCH3),A	;
+  A05A    3E 01                 	LD A,CTCCNT	;SET CHANNEL3 COUNT
+  A05C    D3 0F                 	OUT (CTCCH3),A	;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-6
+
+
+                                
+                                ;INITIALIZATION OF THE DISPLAY BUFFER
+                                ;
+  A05E    21 B020               	LD HL,DSPSTR	;INITIALIZE BUFFER TO ' ' CHARACTERS
+  A061    11 B021               	LD DE,DSPSTR+1	;
+  A064    01 07CF               	LD BC,07CFH	;
+  A067    36 20                 	LD (HL),' '     ;
+  A069    ED B0                 	LDIR		;
+  A06B    21 A676               	LD HL,RCCOL	;MOVE COLOUR AND THE ' RC700' PROMT TO            	   	     	
+  A06E    11 B020               	LD DE,DSPSTR    ;THE MEMORY DISPLAYBUFFER
+  A071    CD A5AC               	CALL MESSWR	;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-7
+
+
+                                
+                                ;INITIALIZATION OF THE INTEL 8275 DISPLAY CONTROLLER
+                                ;
+                                ;
+  0001                          CRTCOM	EQU	01	;CRT CONTROL REGISTER
+  0000                          CRTDAT	EQU	00	;CRT DATA REGISTER
+  0080                          LCURS	EQU	80H	;LOAD CURSOR COMMAND
+  00A0                          CRTEN	EQU    0A0H	;CRT ENABLE INTERRUPT
+  00E0                          PRECC	EQU    0E0H	;PRESET COUNTERS COMMAND
+  0023                          STDISP	EQU    023H	;START DISPLAY
+  0000                          CRTRES	EQU	00H	;RESET CRT CONTROLLER
+  004F                          PARAM1	EQU    04FH	;NORMAL ROWS,80CHAR/ROW
+  0098                          PARAM2	EQU    098H	;25 ROWS PER FRAME
+  007A                          PARAM3	EQU	7AH	;UNDERLINE IN POS 8-10 POS PER CHARACTER
+  004D                          PARAM4	EQU	4DH	;CURSOR FORMAT BLOCK, BLINK AND REVERSE VIDEO
+                                ;
+                                ;
+  A074    3E 00                 	LD A,CRTRES	;RESET CRT CONTROLLER   
+  A076    D3 01                 	OUT (CRTCOM),A	;
+  A078    3E 4F                 	LD A,PARAM1	;SET CHAR/ROW
+  A07A    D3 00                 	OUT (CRTDAT),A	;
+  A07C    3E 98                   	LD A,PARAM2	;SET ROWS/FRAME
+  A07E    D3 00                 	OUT (CRTDAT),A	;
+  A080    3E 7A                 	LD A,PARAM3	;
+  A082    D3 00                 	OUT (CRTDAT),A	;SET LINES PER CHAR
+  A084    3E 4D                 	LD A,PARAM4	;SET CURSER FORMAT
+  A086    D3 00                 	OUT (CRTDAT),A	;
+  A088    3E 80                 	LD A,LCURS	;LOAD CURSOR POSITION
+  A08A    D3 01                 	OUT (CRTCOM),A	;
+  A08C    3E 1A                 	LD A,26		;A:=26 ;REMOVE CURSOR
+  A08E    D3 00                 	OUT (CRTDAT),A	;CURSOR X POS:=26
+  A090    D3 00                 	OUT (CRTDAT),A	;CURSOR Y POS:=26
+  A092    3E E0                 	LD A,PRECC	;PRESET COUNTERS
+  A094    D3 01                 	OUT (CRTCOM),A	;
+  A096    21 B020               	LD HL,DSPSTR	;
+  A099    7D                    	LD A,L		;SET LOW ADDRESS IN DMA CHANNEL2
+  A09A    D3 F4                 	OUT (CH2ADR),A	;
+  A09C    7C                    	LD A,H		;SET HIGH ADDRESS IN DMA CHANNEL2
+  A09D    D3 F4                 	OUT (CH2ADR),A	;
+  A09F    D3 FC                 	OUT (CLBP),A	;CLEAR BYTE COUNTER
+  A0A1    3E CF                 	LD A,0CFH	;SET WORD COUNT LOW
+  A0A3    D3 F5                 	OUT (WCREG2),A	;
+  A0A5    3E 07                 	LD A,07H	;SET WORD COUNT HIGH 
+  A0A7    D3 F5                 	OUT (WCREG2),A	;
+  A0A9    3E 02                 	LD A,CLR2	;CLEAR DMA CHANNEL2 MASK BIT
+  A0AB    D3 FA                 	OUT (SMSK),A	;
+  A0AD    3E 23                 	LD A,STDISP	;START DISPLAY AND PROMT ' RC700'
+  A0AF    D3 01                 	OUT (CRTCOM),A	;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-8
+
+
+                                
+  A0B1    AF                    	XOR A		;
+  A0B2    32 A5BC               	LD (FLBFLG),A	;FLOPPY BOOT FLAG:=0
+  A0B5    CD A53A               	CALL DUMINT     ;CLEAR DAISY CHAIN
+                                                	; AND ENABLE INTERRUPTS TO RECOGNIZE KEYBOARD 
+                                			;INTERVENTION
+  A0B8    3E 37                         LD A,055        ;WAIT FOR TIMER=0
+  A0BA    32 A5C2                       LD (TIMER),A    ;
+  A0BD    CD A1D3                       CALL LDGEN      ;
+  A0C0    3A A5C2               WL1:    LD A,(TIMER)     ;
+  A0C3    B7                            OR A            ;
+  A0C4    20 FA                         JR NZ,WL1       ;
+                                PAGE   
+	MACRO-80 3.44	09-Dec-81	PAGE	1-9
+
+
+                                
+                                ;**************************************************************************** *                                                    
+                                ;*  MEMORY DISK AUTOLOAD SECTION                                              *
+                                ;******************************************************************************
+                                ;
+  2000                          BIOSL   EQU     8192    ;LENGHT OF BIOSTRACK
+                                
+                                ;       MEMORYDISK PORT ASSIGNMENT
+  00EE                          MDTRK   EQU     0EEH    ;TRACKREGISTER
+  00EF                          MDSEC   EQU     0EFH    ;SECTOR REGISTER
+  00EE                          MDST    EQU     0EEH    ;STATUS REGISTER
+                                
+  A0C6    DB F8                 MEMDSK: IN A,(DMACOM)   ;REMOVE PENDING READY
+  A0C8    AF                            XOR A           ;
+  A0C9    D3 F9                         OUT (DMAREQ),A  ;NO DMAREQ
+  A0CB    32 A5BE                       LD (HSTTRK),A   ;SET TRACK=0
+  A0CE    32 A5BF                       LD (HSTSEC),A   ;SET SECTOR=0
+  A0D1    01 000A                       LD BC,10        ;
+  A0D4    ED 43 A5C0                    LD (SIZE),BC    ;SET SIZE=10
+  A0D8    CD A197                       CALL MDRD       ;
+  A0DB    48                            LD C,B          ;BC=0
+  A0DC    10 FE                 WLOOP:  DJNZ WLOOP      ;WAIT FOR DMA TO FINIS
+  A0DE    DB F8                         IN A,(DMACOM)   ;
+  A0E0    E6 01                         AND 01          ;CHECK DMA FINISED?
+  A0E2    20 0D                         JR NZ,MDDISK    ;YES CONTINUE
+  A0E4    3E 04                         LD A,4          ;
+  A0E6    D3 F9                         OUT (DMAREQ),A  ;FORCE DMAREQUEST
+  A0E8    DB F8                 WLOOP1: IN A,(DMACOM)    ;
+  A0EA    E6 01                         AND 01      	;
+  A0EC    20 FA                         JR NZ,WLOOP1    ;WAIT FOR DMA TO TERMINATE
+  A0EE    C3 A201                       JP FLOPPY       ;THEN AUTOLOAD FROM FLOPPY
+                                
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-10
+
+
+                                
+  A0F1    3A A5BC               MDDISK: LD A,(FLBFLG)   ;
+  A0F4    B7                            OR A            ;
+  A0F5    C2 A201                       JP NZ,FLOPPY    ;IF FORCE FLOPPY_BOOT
+  A0F8    DB EE                         IN A,(MDST)     ;
+  A0FA    E6 01                         AND 01          ;IF PARITY ERROR
+  A0FC    C4 A132                       CALL NZ,MDFORM  ;THEN FORMATDISK
+  A0FF    21 0000                       LD HL,0         ;
+  A102    22 A5BA                       LD (BUFFER),HL  ;LOAD BUFFER=0
+  A105    3A A5BC                       LD A,(FLBFLG)   ;
+  A108    B7                            OR A            ;
+  A109    C2 A201                       JP NZ,FLOPPY    ;IF FORCE FLOPPY_BOOT
+  A10C    D3 19                         OUT (RAMEN),A   ;MEMORYDISK RECOGNIZED ENABLE RAM
+  A10E    3E 00                         LD A,0          ;
+  A110    32 A5BE                       LD (HSTTRK),A   ;
+  A113    01 1FFF                       LD BC,BIOSL-1   ;
+  A116    ED 43 A5C0                    LD (SIZE),BC    ;
+  A11A    3E 80                         LD A,128        ;
+  A11C    32 A5BF                       LD (HSTSEC),A   ;BOOT FROM TRACK 0 SECTOR 128
+  A11F    CD A197                       CALL MDRD      	;
+  A122    CD A1C5                       CALL MDWAIT     ;
+  A125    C2 A201                       JP NZ,FLOPPY    ;IF PARITY ERROR THEN BOOT FROM FLOPPY
+  A128    CD A4B4                       CALL FDSTAR     ;START FLOPPY
+  A12B    CD A3F4                       CALL INDISK     ;WAIT FLOPPY IN A TO BE READY
+  A12E    2A 0000                       LD HL,(0)       ; GET START ADDRESS OF BOOT FILE
+  A131    E9                            JP (HL)         ;AND EXECUTE
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-11
+
+
+                                
+                                ;***********************************************************************
+                                ;*      MEMORYDISK FORMAT SECTION                                      *
+                                ;***********************************************************************
+                                
+  A132    DB EE                 MDFORM: IN A,(MDST)     ;GET STATUS
+  A134    E6 FC                         AND 0FCH        ;FIND NUMBER OF TRACK'S
+  A136    C8                            RET Z           ;RETURN IF NO TRACK
+  A137    21 3000                       LD HL,3000H     ;BUFFER TO PLACE E5 IN
+  A13A    11 3001                       LD DE,3001H     ;
+  A13D    22 A5BA                       LD (BUFFER),HL  ;
+  A140    01 3FFF                       LD BC,1024*16-1 ;16 SECTORS OF 1024 BYTES
+  A143    ED 43 A5C0                    LD (SIZE),BC    ;
+  A147    03                            INC BC         	;
+  A148    36 E5                         LD (HL),0E5H    ;
+  A14A    ED B0                         LDIR            ;FILL BUFFER WITH 0E5
+  A14C    CD A193               LOOP:   CALL MDWR       ;WRITE TRACK
+  A14F    CD A58A                       CALL WRNUM      ;WRITE NUMBER TO SCREEN
+  A152    CD A1C5                       CALL MDWAIT     ;
+  A155    21 A5BE                       LD HL,HSTTRK    ;
+  A158    34                            INC (HL)        ;
+  A159    DB EE                         IN A,(MDST)      ;
+  A15B    E6 FC                         AND 0FCH        ;FIND TRACKNUMBER
+  A15D    BE                            CP (HL)         ;CHECK FOR FINIS
+  A15E    20 EC                         JR NZ,LOOP      ;
+  A160    11 B070                       LD DE,DSPSTR+80 ;
+  A163    21 A62E                       LD HL,MESS3     ;
+  A166    CD A5AC                       CALL MESSWR     ;CLEAR LINE ON SCREEN
+  A169    01 07FF                       LD BC,2047      ;MOVE PROMDIR
+  A16C    AF                            XOR A           ;TO CPMDIR
+  A16D    ED 43 A5C0                    LD (SIZE),BC    ;
+  A171    32 A5BF                       LD (HSTSEC),A   ;
+  A174    3E 40                         LD A,64         ;SET SECTOR=0 AND TRACK=64
+  A176    32 A5BE                       LD (HSTTRK),A   ;
+  A179    CD A197                       CALL MDRD       ;READ 2048 BYTES
+  A17C    CD A1C5                       CALL MDWAIT     ;WAIT READY
+  A17F    C0                            RET NZ          ;RETURN ON ERROR
+  A180    3A 3000                       LD A,(3000H)    ;GET FIRST BYTE OF PROMDISK
+  A183    FE 20                         CP 20H          ;IF NOT 20 THEN NO PROMDISK
+  A185    C0                            RET NZ          ;
+  A186    AF                            XOR A           ;
+  A187    32 A5BE                       LD (HSTTRK),A   ;
+  A18A    32 A5BF                       LD (HSTSEC),A   ;SECTOR=0, TRACK=0
+  A18D    CD A193                       CALL MDWR       ;
+  A190    C3 A1C5                       JP MDWAIT       ;RETURN WHEN WRITE IS FINISED
+                                 
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-12
+
+
+                                
+                                ;******************************************************************
+                                ;*      MEMORY DISK READ/WRITE                                    *
+                                ;*                                                                *
+                                ;*      USE DMA CONTROLLER                                        *
+                                ;******************************************************************
+                                
+  A193    06 48                 MDWR:   LD B,48H        ;DMA WRITE COMMAND
+  A195    18 02                         JR MDCOM        ;
+  A197    06 44                 MDRD:   LD B,44H        ;DMA READ COMMAND
+  A199    F3                    MDCOM:  DI              ;
+  A19A    3E 04                         LD A,04         ;SET MASKBIT
+  A19C    D3 FA                         OUT (SMSK),A    ;
+  A19E    78                            LD A,B          ;
+  A19F    2A A5BA                       LD HL,(BUFFER)  ;HL=DMAADDRESS
+  A1A2    ED 4B A5C0                    LD BC,(SIZE)    ;BC=BYTECOUNT
+  A1A6    D3 FB                 MDCOM1: OUT (DMAMOD),A  ;SET DMA MODE
+  A1A8    D3 FC                         OUT (CLBP),A    ;CLEAR BYTEPOINTER
+  A1AA    7D                            LD A,L          ;
+  A1AB    D3 F0                         OUT (CH0ADR),A  ;SET ADDRESS
+  A1AD    7C                            LD A,H          ;
+  A1AE    D3 F0                         OUT (CH0ADR),A  ;
+  A1B0    79                            LD A,C          ;
+  A1B1    D3 F1                         OUT (WCREG0),A  ;
+  A1B3    78                            LD A,B          ;SET BYTE COUNT
+  A1B4    D3 F1                         OUT (WCREG0),A  ;
+  A1B6    AF                            XOR A           ;
+  A1B7    D3 FA                         OUT (SMSK),A    ;
+  A1B9    FB                            EI              ;DMA SETUP FINISED
+  A1BA    3A A5BE                       LD A,(HSTTRK)   ;
+  A1BD    D3 EE                         OUT (MDTRK),A   ;SET TRACK AND CLEAR ERROR IF ANY
+  A1BF    3A A5BF                       LD A,(HSTSEC)   ;
+  A1C2    D3 EF                         OUT (MDSEC),A   ;SET SECTOR AND START DMA
+  A1C4    C9                            RET             ;RETURN
+  A1C5    DB EE                 MDWAIT: IN A,(MDST)     ;REPEAT
+  A1C7    E6 02                         AND 02H         ;CHECK BUSY
+  A1C9    20 FA                         JR NZ,MDWAIT    ;UNTIL NOT BUSY
+  A1CB    DB EE                         IN A,(MDST)     ;
+  A1CD    E6 01                         AND 01H         ;CHECK PARITY BIT
+  A1CF    32 B00D                       LD (ERFLAG),A   ;
+  A1D2    C9                            RET             ;ERROR IF A<>0
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-13
+
+
+                                
+                                ;*********************************************************************
+                                ;*                                                                   *
+                                ;*      LOAD CHARACTERGENERATOR SEM 702                              *
+                                ;*                                                                   *
+                                ;*********************************************************************
+                                
+  00D1                          CHARLN  EQU     0D1H    ;CHARACTER
+  00D2                          DOTLN   EQU     0D2H    ;DOT LINE
+  00D3                          CHARDA  EQU     0D3H    ;RAM DATA
+  A1D3    01 0000               LDGEN:  LD BC,0         ;C=LINE COUNT
+  A1D6    DD 21 2000                    LD IX,2000H     ;B=CHAR COUNT
+  A1DA    AF                            XOR A           ;IX=POINTER
+  A1DB    D3 D1                         OUT (CHARLN),A  ;
+  A1DD    D3 D2                         OUT (DOTLN),A   ;
+  A1DF    DD 5E 00              LDLP:   LD E,(IX)       ;GET CHAR
+  A1E2    16 08                         LD D,8          ;
+  A1E4    CB 13                 LDLP1:  RL E            ;SHIFT BIT TO CARRY
+  A1E6    CB 1F                         RR A            ;SHIFT CARRY TO BIT
+  A1E8    15                            DEC D           ;
+  A1E9    20 F9                         JR NZ,LDLP1     ;
+  A1EB    D3 D3                         OUT (CHARDA),A  ;PUT IT OUT
+  A1ED    DD 23                         INC IX          ;POINT TO NEXT CHAR
+  A1EF    79                            LD A,C          ;
+  A1F0    3C                            INC A           ;GET NEXT DOT LINE
+  A1F1    E6 0F                         AND 0FH         ;
+  A1F3    4F                            LD C,A          ;
+  A1F4    D3 D2                         OUT (DOTLN),A   ;SET NEXT DOT LINE
+  A1F6    20 E7                         JR NZ,LDLP      ;LOOP
+  A1F8    04                            INC B           ;GET NEXT CHAR
+  A1F9    78                            LD A,B          ;
+  A1FA    FE 80                         CP 128          ;FINIS
+  A1FC    C8                            RET Z           ;YES RETURN
+  A1FD    D3 D1                         OUT (CHARLN),A  ; SET NEXT CHAR
+  A1FF    18 DE                         JR LDLP         ;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-14
+
+
+                                
+                                ;*****************************************************************************
+                                ;*               							     *
+                                ;* FLOPPY_BOOT SECTION							     *
+                                ;*									     *
+                                ;*****************************************************************************
+                                ;
+  A201    CD A393               FLOPPY:	CALL INITFL	;FLOPPY_BOOT INITIALIZE FDC AND RECALIBRATE DRIVE0
+  A204    D3 19                 	OUT (RAMEN),A	; FLOPPY RECOGNIZED ENABLE RAM IN PROM1 ADDRESS AREA
+  A206    21 0000               	LD HL,00	; MEMORY_ADR:=0
+  A209    22 B00F               	LD (MEMADR),HL	;
+  A20C    CD A373               	CALL READ	; READ_TRACK0 
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-15
+
+
+                                
+                                ;
+                                ;CHECK FOR ID-COMAL OR (CP/M - COMAL80) BOOT
+                                ;
+  A20F    01 0006               	LD BC,6		;
+  A212    21 A692               	LD HL,IDTXT  	; HL POINTS TO ' RC700' TEXT
+  A215    11 0001               	LD DE,1		; DE POINTS TO THE IMAGE LOADED FROM DISK
+  A218    CD A36A               	CALL COMSTR	; COMPARE STRINGS
+  A21B    CA A278               	JP Z,IDBOOT	; IF MEMORY IMAGE TEXT=' RC700' THEN
+                                			; GO TO ID-COMAL BOOT
+  A21E    01 0005                	LD BC,5		;
+  A221    21 A698               	LD HL,CPMTXT 	; HL POINTS TO ' RC700' TEXT
+  A224    11 0007               	LD DE,7		; DE POINTS TO THE IMAGE LOADED FROM DISK
+  A227    CD A36A               	CALL COMSTR	; COMPARE STRINGS
+  A22A    28 06                 	JR Z,CPCOMB	;IF THE FIRST FIVE CHAR OF MEMORY IMAGE IS DIFFERENT
+                                			;FROM ' RC70' THEN GO TO ERROR
+                                			;ELSE GO TO CP/M-COMAL80 BOOT
+  A22C    21 A604               ERXIT:	LD HL,ERMES3	; IF ERROR THEN WRITE('* NO SYSTEM FILES *')
+  A22F    C3 A57D               	JP ERR		;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-16
+
+
+                                
+                                ; 
+                                ;COMAL80 - CP/M AUTOLOAD
+                                ;
+  A232    DD 21 A517            CPCOMB: LD IX,COMBUF	;INITIALIZE READ COMMAND BUFFER
+  A236    DD 36 00 42           	LD (IX),DUALC	;DUAL DENSITY READ COMMAND
+  A23A    DD 36 01 04           	LD (IX+1),DR0H1	;DRIVE 0 HEAD 1
+  A23E    DD 36 05 01           	LD (IX+5),BDSEC	;256 BYTES PER SECTOR
+  A242    DD 36 07 0E           	LD (IX+7),DUAGPL;GAB 3 DUAL DENSITY
+  A246    DD 36 08 FF           	LD (IX+8),DUADTL; DTL DUMMY=FFH
+                                	                ;
+  A24A    3E 05                 	LD A,5		;
+  A24C    32 B011               	LD (REPTIM),A	;
+  A24F    AF                    REPRD2:	XOR A		;REPEAT
+  A250    32 A5BD               	LD (FL_FLG),A	;CLEAR FLOPPY INT FLAG
+  A253    DB 14                 	IN A,(SW1)	;
+  A255    E6 80                 	AND 80H
+  A257    28 05                 	JR Z,IMBUF	;  IF MINI_DRIVE THEN
+  A259    11 0FFF               	LD DE,MIBYT1	;  BYTES TO TRANSFER:= 256*16
+  A25C    18 03                 	JR INID		;
+  A25E    11 19FF               IMBUF:	LD DE,MXBYT1	;  ELSE BYTES TO TRANSFER:= 256*26
+  A261    0E F2                 INID:	LD C,CH1ADR	;  INITIALIZE AND ENABLE DMA
+  A263    3E 05                 	LD A,SET1	;
+  A265    2A A520               	LD HL,(TRBYT)	;
+  A268    23                    	INC HL		;TO GET THE FIRST FREE ADDRESS
+  A269    CD A526               	CALL STPDMA	;
+  A26C    CD A4CB               	CALL FLRTRK	;  READ CYLLINDER 0 SIDE 1
+  A26F    CD A4DD               	CALL READOK	;  WAIT- CHECK READING OK 
+  A272    38 DB                 	JR C,REPRD2	;UNTIL REPTIM=0 OR NOT ERROR
+                                			;
+  A274    2A 0000               	LD HL,(00)	;LOAD BOOTADDRESS
+  A277    E9                    	JP (HL)		;AND TRANSFER CONTROL
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-17
+
+
+                                
+                                ;*****************************************************************************
+                                ;* 									     *
+                                ;* ID COMAL AUTOLOAD SECTION:					             *
+                                ;*  MINI DRIVES: THE SYSTEM CODE IS ON TRACK 1-3		             *
+                                ;*               SIDE0= 16 SECTORS
+                                ;*               SIDE1= 10 SECTORS(LAST 6 SECTORS GARBAGE)
+                                ;*               ALWAYS DOBBELT SIDED AND SINGLE DENSITY
+                                ;*
+                                ;*  MAXI DRIVES: THE SYSTEM CODE IS ON TRACK 1-3
+                                ;*                ALLWAYS SINGLE SIDED AND SINGLE DENSITY
+                                ;* 							                     *    		 	 
+                                ;*****************************************************************************
+                                
+  0086                          MTRK	EQU	86H	;MINI DRIVES MULTITRACK FDC COMMAND
+  0500                          MINS1	EQU	1280	;BYTES ON SIDE 1 MINI DRIVES ID-COMAL
+  0D00                          SBID	EQU	3328	;SIGNIFICANTE BYTES ON ONE CYLINDER          
+  1000                          IDBADR	EQU	1000H	;ID COMAL BOOT ADDRESS
+                                
+                                ;
+  A278                          IDBOOT:			;
+  A278    DB 14                 	IN A,(SW1)	;IF MINI_DRIVES THEN
+  A27A    E6 80                 	AND 80H		;
+  A27C    28 0E                 	JR Z,CATCH	;
+  A27E    3E 04                 	LD A,DR0H1	; READ CATALOG FROM TRACK0 SIDE1
+  A280    32 A518               	LD (COMBUF+1),A	;
+  A283    21 0800               	LD HL,MIBYT0+1	;
+  A286    22 B00F               	LD (MEMADR),HL	;
+  A289    CD A373               	CALL READ	;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-18
+
+
+                                
+                                ;ID COMAL CATALOG CHECK
+  0B60                          IDCAT	EQU	0B60H	;ID COMAL CATALOG START ADDRESS-20H
+  0020                          FILDI	EQU	020H	;ENTRY DISPLACEMENT
+  0013                          FILTY	EQU	013H	;SYSTEM-FILE TYPE VALUE
+  000E                          OUTCAT	EQU	00EH    ;MOST SIGNIFICANT ADDRESS BYTE OF THE FIRST
+                                			;PAGE THAT LIES OUT OF THE CATALOG ADDRESS SPACE 
+                                ;THE CATALOG CONTAINS 12 ENTRIES EACH 32 BYTES LONG
+                                ;THE LAST ENTRY ADDRESS IS 0DE0H
+                                ;
+  A28C    21 0B60               CATCH:	LD HL,IDCAT	;ENTRY NUMBER:= 0
+  A28F    11 0020               REPENT:	LD DE,FILDI	;WHILE ENTRY.EMPTY AND ENTRY NUMBER<13 DO
+  A292    19                    	ADD HL,DE	;
+  A293    3E 0E                 	LD A,OUTCAT	;
+  A295    BC                    	CP H		;
+  A296    CA A364               	JP Z,DIRERR	; ENTRY NUMBER:= ENTRY NUMBER+1;
+  A299    7E                    	LD A,(HL)	;
+  A29A    B7                    	OR A		;
+  A29B    28 F2                 	JR Z,REPENT	;
+                                			;IF ENTRY NUMBER>12 THENGO TO DIR_ERROR
+  A29D    E5                    	PUSH HL		;
+  A29E    23                    	INC HL		;
+  A29F    11 A66D               	LD DE,SYSM-1	;IF ENTRY.TEXT<>'SYSM' THEN GO TO DIR_ERROR
+  A2A2    01 0004               	LD BC,4		;
+  A2A5    CD A36A               	CALL COMSTR	;
+  A2A8    C2 A364               	JP NZ,DIRERR	;
+  A2AB    E1                    	POP HL		;
+  A2AC    E5                    	PUSH HL		;
+  A2AD    11 0020               	LD DE,FILDI	;ENTRY NUMBER:= ENTRY NUMBER+1
+  A2B0    19                    	ADD HL,DE	;
+  A2B1    E5                    	PUSH HL		;
+  A2B2    23                    	INC HL		;
+  A2B3    11 A671               	LD DE,SYSC-1	;IF ENTRY.TEXT<>'SYSC' THEN GO TO DIR_ERROR
+  A2B6    01 0004               	LD BC,4		;
+  A2B9    CD A36A               	CALL COMSTR	;
+  A2BC    C2 A364               	JP NZ,DIRERR	;
+  A2BF    06 02                 	LD B,2		;FOR I:=ENTRY NUMBER DOWNTO ENTRY NUMBER-1 DO
+  A2C1    11 0008               	LD DE,8		;
+  A2C4    E1                    REPATR:	POP HL		; IF ENTRY(I).ATTRIBUTE<>SYSTEMFILE THEN
+  A2C5    19                    	ADD HL,DE	; GO TO DIR_ERRROR
+  A2C6    7E                    	LD A,(HL)	;
+  A2C7    E6 3F                 	AND 3FH		;
+  A2C9    FE 13                 	CP FILTY	;
+  A2CB    C2 A364               	JP NZ,DIRERR	;
+  A2CE    10 F4                 	DJNZ REPATR	;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-19
+
+
+                                
+                                ;LOAD ID COMAL SYSTEM CODE		 		
+  A2D0    21 0000               	LD HL,00	;
+  A2D3    22 B00F               	LD (MEMADR),HL	; MEMORY_ADDRESS:=0
+  A2D6    3E 01                 	LD A,1		;
+  A2D8    32 B000               	LD (TRK),A	; TRACK:=1
+  A2DB    DB 14                 	IN A,(SW1)	;
+  A2DD    E6 80                 	AND 80H		;
+  A2DF    CA A31F               	JP Z,MAXIRD	;  IF MINI=DRIVES THEN
+  A2E2    3A B000               	LD A,(TRK)	;BEGIN
+  A2E5    47                    IDRL1:	LD B,A		;  FOR I:=1 TO 9 DO
+  A2E6    CD A45F               	CALL FLO7	;  BEGIN
+  A2E9    3A B000               	LD A,(TRK)	;
+  A2EC    32 A519               	LD (CURID),A	;
+  A2EF    AF                    	XOR A		;    
+  A2F0    32 A518               	LD (COMBUF+1),A	;    SET DRIVE 0 HEAD 0
+  A2F3    CD A373                	CALL READ	;    SEEKTRACK(TRACK)
+  A2F6    2A B00F               	LD HL,(MEMADR)	;    READTRACK(SIDE0)
+  A2F9    11 0800               	LD DE,MIBYT0+1	;    MEMORY_ADR:=MEMORY_ADR+16*128
+  A2FC    19                     	ADD HL,DE	;
+  A2FD    22 B00F               	LD (MEMADR),HL	;
+  A300    3E 04                 	LD A,DR0H1	;
+  A302    32 A518               	LD (COMBUF+1),A	;    SET DRIVE 0 HEAD 1
+  A305    CD A373               	CALL READ	;    READTRACK(SIDE1)
+  A308    2A B00F               	LD HL,(MEMADR)	;
+  A30B    11 0500               	LD DE,MINS1	;
+  A30E    19                    	ADD HL,DE	;    MEMORY=ADR:=MEMORY_ADR+10*128
+  A30F    22 B00F               	LD (MEMADR),HL	;
+  A312    3A B000               	LD A,(TRK)	;
+  A315    3C                    	INC A		;
+  A316    32 B000               	LD (TRK),A	;
+  A319    FE 0A                 	CP 10		;
+  A31B    20 C8                 	JR NZ,IDRL1	;  END
+  A31D    18 25                 	JR IDFIN	;     
+  A31F    3A B000               MAXIRD:	LD A,(TRK)	;ELSE
+  A322    47                    IDRL2:	LD B,A		;FOR I:=1 TO 9 DO 
+  A323    CD A45F               	CALL FLO7	;BEGIN
+  A326    3A B000               	LD A,(TRK)	;  SEEKTRACK(TRACK)
+  A329    32 A519               	LD (CURID),A	;  CURRENT CYL NUMBER:=TRACK
+  A32C    CD A373               	CALL READ	;  READTRACK(TRACK)
+  A32F    2A B00F               	LD HL,(MEMADR)	;
+  A332    11 0D00               	LD DE,SBID	;MEMORY_ADDRESS:=MEMORY_ADDRESS+(26*128)
+  A335    19                    	ADD HL,DE	;
+  A336    22 B00F               	LD (MEMADR),HL	;
+  A339    3A B000               	LD A,(TRK)	;
+  A33C    3C                    	INC A		;
+  A33D    32 B000               	LD (TRK),A	;
+  A340    FE 0A                 	CP 10		;
+  A342    20 DE                 	JR NZ,IDRL2	;END(*FOR LOOP*)
+                                			;
+  A344    3E 10                 IDFIN:	LD A,COMV	;
+  A346    D3 F8                 	OUT (DMACOM),A	;
+  A348    3E 44                 	LD A,MODE0	; INITIALIZE DMA FOR ID-COMAL USE
+  A34A    D3 FB                 	OUT (DMAMOD),A 	;
+  A34C    3E 45                 	LD A,MODE1	;
+	MACRO-80 3.44	09-Dec-81	PAGE	1-20
+
+
+  A34E    D3 FB                 	OUT (DMAMOD),A 	;
+  A350    3E 4A                 	LD A,4AH	;
+  A352    D3 FB                 	OUT (DMAMOD),A 	;
+  A354    3E 4B                 	LD A,4BH	;
+  A356    D3 FB                 	OUT (DMAMOD),A 	;
+  A358    3E 0F                 	LD A,DMAMSK	;
+  A35A    D3 FF                 	OUT (FULMSK),A	;
+  A35C    3E 87                 	LD A,PENINT	; ENABLE KEYBORD INTERRUPTS IF DISABLED BY
+  A35E    D3 12                 	OUT (KEYCON),A	; THE KEYBOARD INTERRUPT SERVICE RUTINE
+                                			;		
+  A360    21 1000               	LD HL,IDBADR	; LOAD ID COMAL BOOT ADDRESS
+  A363    E9                    	JP (HL)		; AND TRANSFER CONTROL
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-21
+
+
+                                
+  A364    21 A604               DIRERR:	LD HL,ERMES3	;PROCEDURE ID-COMAL DIRECTORY_ERROR
+  A367    C3 A57D               	JP ERR		;
+                                ;
+                                ;
+                                ;
+  A36A    13                    COMSTR:	INC DE		;PROCEDURE COMPARE_STRINGS
+  A36B    1A                    	LD A,(DE)	;
+  A36C    ED A1                 	CPI		;
+  A36E    C0                    	RET NZ		;
+  A36F    EA A36A               	JP PE,COMSTR	;
+  A372    C9                    	RET		;
+                                  
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-22
+
+
+                                
+                                ;************************************************************************
+                                ;*									*
+                                ;*   FLOPPY ROUTINES:							*
+                                ;*									*
+                                ;************************************************************************
+                                ;
+  0004                          FDC	EQU	04H	;FLOPPY COMMAND REGISTER
+  0005                          FDD	EQU	05H	;FLOPPY DATA REGISTER
+                                
+                                ;
+                                ;
+                                ;
+  A373                          READ:			;PROCEDURE READTRACK
+  A373    3E 05                 	LD A,5		;BEGIN
+  A375    32 B011               	LD (REPTIM),A	;  REPEAT
+  A378    AF                    RDL11:	XOR A		;    CLEAR FLOPPY_INT FLAG
+  A379    32 A5BD               	LD (FL_FLG),A	;
+  A37C    0E F2                 	LD C,CH1ADR	;
+  A37E    3E 05                 	LD A,SET1	;
+  A380    2A B00F               	LD HL,(MEMADR)	;
+  A383    ED 5B A520            	LD DE,(TRBYT)	;
+  A387    CD A526               	CALL STPDMA	;    INITIALIZE AND ENABLE DMA
+  A38A    CD A4CB               	CALL FLRTRK	;    READ_TRACK 
+  A38D    CD A4DD               	CALL READOK	;
+  A390    38 E6                 	JR C,RDL11	;  UNTIL RETIM=0 OR NOT ERROR;
+  A392    C9                    	RET		;END
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-23
+
+
+                                
+                                ;
+  A393    DB 14                 INITFL:	IN A,(SW1)	;PROCEDURE INITIALIZE FLOPPY
+  A395    E6 80                 	AND 80H		;BEGIN
+  A397    28 0B                 	JR Z,IFDC0	;  IF MINI_DRIVES THEN
+  A399    3E 0F                 	LD A,0FH	;  BEGIN
+  A39B    32 A524               	LD (FDCINI+2),A	;    SET SRT:=16MS AND HUT:=240MS
+  A39E    21 07FF               	LD HL,MIBYT0	;    TRANSFER_BYTES:=16*128
+  A3A1    22 A520               	LD (TRBYT),HL	;
+  A3A4    CD A4B4               IFDC0:	CALL FDSTAR	;  END
+  A3A7    DB 04                       	IN A,(FDC)	;  WHILE FDC BUSY DO WAIT
+  A3A9    E6 1F                 	AND 01FH	;
+  A3AB    20 F7                 	JR NZ,IFDC0	;
+  A3AD    21 A522               	LD HL,FDCINI	;  FOR I:=(B) DOWNTO 1 DO
+  A3B0    46                    	LD B,(HL)	;  BEGIN
+  A3B1    23                    IFDC1:	INC HL		;
+  A3B2    CD A408               	CALL FLO2	;    WAIT_READY_WRITE
+  A3B5    7E                    	LD A,(HL)	;
+  A3B6    D3 05                 	OUT (FDD),A	;    WRITE FDC INIT COMMAND
+  A3B8    10 F7                 	DJNZ IFDC1	;  END
+  A3BA    CD A3F4                       CALL INDISK     ; WAIT FOR DISK IN DRIVE
+  A3BD    3E 05                 	LD A,5		;
+  A3BF    32 B011               	LD (REPTIM),A	;
+  A3C2    AF                    RECREP: XOR A		;  REPEAT
+  A3C3    32 A5BD               	LD (FL_FLG),A	;    CLEAR FLOPPY INT FLAG
+  A3C6    3D                            DEC A           ;SET TIMER=5 SEC
+  A3C7    32 A5C2                       LD (TIMER),A    ;
+  A3CA    CD A41A               	CALL FLO4	;    RECALIBRATE DRIVE0
+                                			;    WHILE FDC NOT READY OR NOT TIMEOUT DO
+  A3CD    3A A5BD               FW1:	LD A,(FL_FLG)	;    BEGIN
+  A3D0    B7                    	OR A		;      CHECK FLOPPY INT FLAG FOR FDC READY
+  A3D1    20 0C                 	JR NZ,FD_RDY	;
+  A3D3    3A A5C2                       LD A,(TIMER)    ;IF TIMER=0 THEN TIMEOUT
+  A3D6    B7                            OR A            ;
+  A3D7    20 F4                 	JR NZ,FW1	;     END
+  A3D9    21 A5D6               	LD HL,ERMES1	;     IF TIMEOUT THEN WRITE(PLEASE INSERT DISKETTE)
+  A3DC    C3 A57D               	JP ERR		;     ERROR_ABORT
+  A3DF    3A B003               FD_RDY:	LD A,(RSTAB)	;     IF RECALIBRATE_ERROR THEN TIMES:=TIMES-1
+  A3E2    E6 D0                 	AND 0D0H	;
+  A3E4    C8                    	RET Z		;
+  A3E5    3A B011               	LD A,(REPTIM)   ;
+  A3E8    3D                    	DEC A		;
+  A3E9    32 B011               	LD (REPTIM),A	;
+  A3EC    20 D4                 	JR NZ,RECREP	;  UNTIL TIMES=0 OR NOT ERROR
+  A3EE    21 A5D6               	LD HL,ERMES1	;  IF RECALIBRATEERROR THEN
+  A3F1    C3 A57D               	JP ERR		;  WRITE(PLEASE INSERT DISKETTE)
+                                			;  ERROR_ABORT  	
+                                			;END(*PROCEDURE INITIALIZE FLOPPY*)
+  A3F4    11 B7A0               INDISK: LD DE,DSPSTR+1920;
+  A3F7    D5                            PUSH DE         ;WRITE 'INSERT DISKETTE'
+  A3F8    21 A64F                       LD HL,MESS4     ;IN BOTTOM OF SCREEN
+  A3FB    CD A5AC                       CALL MESSWR     ;
+  A3FE    CD A429                       CALL FLO8       ;WAIT FOR DISK TO BE READY
+  A401    D1                            POP DE          ;
+  A402    21 A62E                       LD HL,MESS3     ;CLEAR TEXT AT BOTTOM
+	MACRO-80 3.44	09-Dec-81	PAGE	1-24
+
+
+  A405    C3 A5AC                       JP MESSWR       ;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-25
+
+
+                                
+                                ;
+  A408    DB 04                 FLO2:	IN A,(FDC)	;PROCEDURE WAIT_READY_WRITE
+  A40A    E6 C0                 	AND 0C0H	;
+  A40C    FE 80                 	CP 080H		;
+  A40E    20 F8                 	JR NZ,FLO2	;
+  A410    C9                    	RET		;
+                                ;
+                                ;
+                                ;
+  A411    DB 04                 FLO3:	IN A,(FDC)	;PROCEDURE WAIT_READY_READ
+  A413    E6 C0                 	AND 0C0H	;
+  A415    FE C0                 	CP 0C0H		;
+  A417    20 F8                 	JR NZ,FLO3	;
+  A419    C9                    	RET		;
+                                ;
+                                ;
+                                ;
+  A41A                          FLO4:			;PROCEDURE RECALIBRATE_DRIVE0
+                                			;BEGIN
+  A41A    CD A408               	CALL FLO2	;  WAIT_READY_WRITE
+  A41D    3E 07                 	LD A,7		;
+  A41F    D3 05                 	OUT (FDD),A	;  RECALIBRATE COMMAND
+  A421    CD A408               	CALL FLO2	;  WAIT_READY_WRITE
+  A424    3E 00                 	LD A,00		;
+  A426    D3 05                 	OUT (FDD),A	;  SELECT DRIVE0
+  A428    C9                    	RET		;
+                                ;
+  A429    F3                    FLO8:   DI              ;
+  A42A    CD A408                       CALL FLO2       ;WAIT_READY_WRITE
+  A42D    3E 04                         LD A,4          ;
+  A42F    D3 05                         OUT (FDD),A     ;SENSE DRIVES_STATUS COMMAND
+  A431    CD A408                       CALL FLO2       ;WAIT_READY_WRITE
+  A434    AF                            XOR A           ;
+  A435    D3 05                         OUT (FDD),A     ;
+  A437    CD A411                       CALL FLO3       ;WAIT_READY_READ
+  A43A    DB 05                         IN A,(FDD)       ;
+  A43C    FB                            EI              ;
+  A43D    E6 23                         AND 23H         ;CHECK DRIVE (READY)
+  A43F    28 E8                         JR Z,FLO8       ;NO WAIT
+  A441    C9                            RET             ;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-26
+
+
+                                
+  A442                          FLO6:			;PROCEDURE SENSE_INTERRUPT_STATUS
+                                			;BEGIN
+  A442    CD A408               	CALL FLO2	;  WAIT_READY_WRITE
+  A445    3E 08                 	LD A,8		;
+  A447    D3 05                 	OUT (FDD),A	;  SENSE INTERRUPT COMMAND
+  A449    CD A411               	CALL FLO3	;  WAIT_READT_READ
+  A44C    DB 05                 	IN A,(FDD)	;
+  A44E    32 B003               	LD (RSTAB),A	;  RSTAB:=STATUS_REGISTER_0
+  A451    E6 C0                 	AND 0C0H	;
+  A453    FE 80                 	CP 80H		;
+  A455    C8                    	RET Z		;
+  A456    CD A411               	CALL FLO3	;  WAIT_READY_READ
+  A459    DB 05                 	IN A,(FDD)	;  
+  A45B    32 B004               	LD (RSTAB+1),A	;  RSTAB1:=STATUS_REGISTER_1
+  A45E    C9                    	RET		;END
+                                ;
+                                ;
+                                ;
+  A45F                          FLO7:			;PROCEDURE SEEK_TRACK
+                                			;"NEW CYLINDER NUMBER IN B REGISTER"
+  A45F    AF                    	XOR A		;BEGIN
+  A460    32 A5BD               	LD (FL_FLG),A	;  "CLEAR FLOPPY INT FLAG"
+  A463    CD A408               	CALL FLO2	;  WAIT_READY_WRITE 
+  A466    3E 0F                 	LD A,0FH	;
+  A468    D3 05                 	OUT (FDD),A	;  SEEK TRACK COMMAND
+  A46A    CD A408               	CALL FLO2	;  WAIT READY WRITE
+  A46D    AF                    	XOR A		;
+  A46E    D3 05                 	OUT (FDD),A	;  SET DRIVE0/HEAD0
+  A470    CD A408               	CALL FLO2	;  WAIT READY WRITE
+  A473    78                    	LD A,B		;
+  A474    D3 05                 	OUT (FDD),A	;  SET NEW CYLINDER NUMBER
+  A476    3A A5BD               SREP1:	LD A,(FL_FLG)	;
+  A479    B7                    	OR A		;
+  A47A    28 FA                 	JR Z,SREP1	;  WHILE FDC BUSY DO;
+  A47C    3A B003               	LD A,(RSTAB)    ;
+  A47F    E6 F0                 	AND 0F0H	;  IF SEEK_ERROR THEN
+  A481    FE 20                 	CP 20H		;
+  A483    C8                    	RET Z		;  WRITE("*DISKETTE ERROR*)
+  A484    21 A5C3               	LD HL,ERMES0	;
+  A487    C3 A57D               	JP ERR		;
+                                
+                                			
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-27
+
+
+                                
+  A48A                          RSULT:			;PROCEDURE READ_RESULT
+                                			;BEGIN
+  A48A    21 B003               	LD HL,RSTAB	;
+  A48D    16 03                 	LD D,3		;
+  A48F    CD A4A3               RSL1:	CALL RSTAT	;  FOR I:=1 TO 3 DO RESULT_TABLE(I):=FDC_STATUS(I-1)
+  A492    C8                    	RET Z		;
+  A493    15                    	DEC D		;
+  A494    20 F9                 	JR NZ,RSL1	;
+  A496    16 04                 	LD D,4		;
+  A498    21 A519               	LD HL,CURID	;
+  A49B    CD A4A3               RSL2:	CALL RSTAT	;  FOR I:=1 TO 4 DO CURID(I):=FDC_ID(I)
+  A49E    C8                    	RET Z		;
+  A49F    15                    	DEC D		;
+  A4A0    20 F9                 	JR NZ,RSL2	;
+  A4A2    C9                    	RET		;END
+                                ;
+                                ;
+  A4A3                          RSTAT:			;PROCEDURE READ_FLOPPY_RESULT
+  A4A3    CD A411               	CALL FLO3	;
+  A4A6    DB 05                 	IN A,(FDD)	;
+  A4A8    77                    	LD (HL),A	;
+  A4A9    23                    	INC HL		;
+  A4AA    3E 04                 	LD A,4		;
+  A4AC    3D                    RLOOP1:	DEC A		;
+  A4AD    20 FD                 	JR NZ,RLOOP1	;CRITICAL FDC TIMING
+  A4AF    DB 04                 	IN A,(FDC)	;
+  A4B1    E6 10                 	AND 10H		;
+  A4B3    C9                    	RET		;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-28
+
+
+                                
+                                	
+  A4B4    3E 01                 FDSTAR:	LD A,1		;PROCEDURE START_MINI_MOTOR
+  A4B6    D3 14                 	OUT (SW1),A	;
+  A4B8    01 0600               	LD BC,600H	;
+  A4BB    3E FF                 W1:	LD A,0FFH	; WAIT(1 SEC)
+  A4BD    3D                    W2:	DEC A		;
+  A4BE    20 FD                 	JR NZ,W2	;
+  A4C0    0B                    	DEC BC		;
+  A4C1    79                    	LD A,C		;
+  A4C2    B0                    	OR B		;
+  A4C3    20 F6                 	JR NZ,W1	;
+  A4C5    C9                    	RET		;
+                                ;
+                                ;
+                                ;       PROCEDURE STOP_MINI_MOTOR
+  A4C6    3E 00                 FDSTOP:	LD A,0          ;
+  A4C8    D3 14                 	OUT (SW1),A	; STOP_MOTOR
+  A4CA    C9                    	RET		;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-29
+
+
+                                
+  A4CB    F3                    FLRTRK:	DI		;
+  A4CC    21 A517               	LD HL,COMBUF	;PROCEDURE FLOPPY_READTRACK	
+  A4CF    06 09                 	LD B,9		;FOR I:1 TO 9 DO
+  A4D1    CD A408               REPCOM:	CALL FLO2	;BEGIN
+  A4D4    7E                    	LD A,(HL)	;  WAIT_READY_WRITE
+  A4D5    D3 05                 	OUT (FDD),A	;  WRITE.CONTROLLER(COMBUF(I))
+  A4D7    23                    	INC HL		;
+  A4D8    05                    	DEC B		;
+  A4D9    20 F6                 	JR NZ,REPCOM	;
+  A4DB    FB                    	EI		;
+  A4DC    C9                    	RET		;END
+                                ;
+                                ;
+                                ;
+  A4DD                          READOK:	             	;PROCEDURE CHECK_READING_OK     
+  A4DD    3E FF                         LD A,0FFH       ;
+  A4DF    32 A5C2                       LD (TIMER),A    ;SET TIMER=5 SEC
+  A4E2    3A A5BD               WFLP:	LD A,(FL_FLG)	;BEGIN				
+  A4E5    B7                    	OR A		;
+  A4E6    20 08                 	JR NZ,RDOK?	;  WHILE FDC BUSY AND NOT TIMEOUT DO;
+  A4E8    3A A5C2               	LD A,(TIMER)	;
+  A4EB    B7                            OR A  		;
+  A4EC    20 F4                 	JR NZ,WFLP	;
+  A4EE    18 21                 	JR EEXIT1	; IF TIMEOUT THEN GO TO ERROR
+  A4F0    3A B003               RDOK?:	LD A,(RSTAB)	;
+  A4F3    E6 C0                 	AND 0C0H	;"THE AND OPERATION WILL CLEAR CARRY FLAG"
+  A4F5    C8                    	RET Z		;
+  A4F6    FE 40                 	CP 40H		;
+  A4F8    20 06                 	JR NZ,CEXIT	;
+  A4FA    3A B004               	LD A,(RSTAB+1)	;
+  A4FD    E6 35                 	AND 035H	;
+  A4FF    C8                    	RET Z		; IF NOT READ_ERROR THEN RETURN
+  A500    3A B011               CEXIT:	LD A,(REPTIM)	; ELSE BEGIN
+  A503    3D                    	DEC A		;        REPEAT_TIMES:=REPEAT_TIMES-1 
+  A504    32 B011               	LD (REPTIM),A	;
+  A507    28 02                 	JR Z,EEXIT	;        IF REPEAT_TIMES>0 THEN     
+  A509    37                    	SCF		;        SET_CARRY
+  A50A    C9                    	RET		;        ELSE
+  A50B    21 A5C3               EEXIT:  LD HL,ERMES0	;        WRITE('*DISKETTE ERROR*')
+  A50E    C3 A57D               	JP ERR		;
+  A511    21 A5D6               EEXIT1:	LD HL,ERMES1	;        WRITE (*PLEASE INSERT DISKETTE*)
+  A514    C3 A57D               	JP ERR		;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-30
+
+
+                                
+                                ;FLOPPY DISK SETUP CONSTANTS
+                                ;
+                                ;MINI DRIVES CONSTANTS
+  07FF                          MIBYT0	EQU	2047	;BYTES TRACK0 SODE0(16*128)-1
+  0FFF                          MIBYT1	EQU	4095	;BYTES TRACK0 SIDE1(16*256)-1
+                                ;
+                                ;MAXI DRIVES CONSTANTS
+                                ;
+  0CFF                          MXBYT0	EQU	3327	;BYTES TRACK0 SIDE0(26*128)-1 
+  19FF                          MXBYT1	EQU	6655	;BYTES TRACK0 SIDE1(26*256)-1
+                                ;
+                                ;MISCELLENEOUS DISK CONSTANTS
+                                ;
+  0042                          DUALC	EQU	042H	;DUAL DENSITY READ COMMAND
+  00FF                          DUADTL	EQU	0FFH	;DTL FOR DUAL DENSITY
+  000E                          DUAGPL	EQU	00EH	;GAB3 FOR DUAL DENSITY
+  0004                          DR0H1	EQU	004H	;DRIVE0 HEAD1
+  0001                          BDSEC	EQU	001H	;N FOR DUAL DENSITY
+  0010                          MINEOT	EQU	010H	;MINIDRIVES EOT=16
+                                ;
+                                ;
+                                ;READ DISK COMMAND BUFFER
+  A517    02                    COMBUF:	DB 02H		;READ TRACK COMMAND(SINGLE DENSITY)
+  A518    00                    	DB 00H		;DRIVE0/HEAD0
+  A519                          CURID:			;CURRENT FLOPPY ID INFO
+  A519    00                    	DB 00H		;CYLINDER NUMBER
+  A51A    00                    	DB 00H		;HEAD ADDRESS
+  A51B    01                    	DB 01H		;RECORD NUMBER
+  A51C    00                    	DB 00H		;RECORD LENGTH
+                                        
+  A51D    1A                    	DB 1AH		;EOT
+  A51E    07                    	DB 07H		;GAB3
+  A51F    80                    	DB 80H		;DTL
+                                    
+  A520    0CFF                  TRBYT:	DW MXBYT0	;NUMBER OF BYTES TO TRANSFER DURING DMA FROM ONE
+                                			;TRACK(DEFAULT MAXI-DRIVE TRACK0 SIDE0)
+                                
+  A522                          FDCINI:			;FDC SPECIFY COMMAND BUFFER
+  A522    03                    	DB 3		;NUMBER OF COMMANDS
+  A523    03                    	DB 3		;SPECIFY COMMAND
+  A524    DF                    	DB 0DFH		;SRT=3MS HUT=240MS
+  A525    28                    	DB 028H		;HLT=40MS DMAMODE
+                                
+                                
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-31
+
+
+                                
+  A526                          STPDMA:                 ;PROCEDURE SET_UP_DMA
+                                                        ;READING FROM DISK TO MEMORY
+                                                        ;CHANNEL ADDRESS IN C REGISTER
+                                                        ;DMA MEMORY ADDRESS IN HL REGISTER
+                                                        ;NUMBER OF BYTES TO TRANSFER IN DE REGISTER
+                                                        ;SETMASK IN A REGISTER
+  A526    F3                            DI              ;BEGIN
+  A527    D3 FA                         OUT (SMSK),A    ;SET CHANNEL MASK
+  A529    D3 FC                         OUT (CLBP),A    ;CLAR BYTE POINTER
+  A52B    ED 69                         OUT (C),L       ;SET LOW ADDRESS
+  A52D    ED 61                         OUT (C),H       ;SET HIGH ADDRESS
+  A52F    0C                            INC C           ;
+  A530    ED 59                         OUT (C),E       ;SET LOW WORDCOUNT
+  A532    ED 51                         OUT (C),D       ;SET HIGH WORDCOUNT
+  A534    CB 97                         RES 2,A         ;CLEAR MASK BIT
+  A536    D3 FA                         OUT (SMSK),A    ;ENABLE DMA
+  A538    FB                            EI              ;
+  A539    C9                            RET             ;END
+                                
+                                
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-32
+
+
+                                
+                                ;*****************************************************************************         	
+                                ;*
+                                ;* INTERRUPT SERVICE RUTINES:
+                                ;*
+                                ;*****************************************************************************
+                                ;
+  A53A    FB                    DUMINT:	EI 		;PROCEDURE DUMMY_INTERRUPT
+  A53B    ED 4D                 	RETI		;
+                                ;
+                                ;
+                                ;
+  A53D    08                    KBINT:	EX AF,AF'	;PROCEDURE KEYBOARD_INTERRUPT
+  A53E    DB 10                 	IN A,(KEYDAT)	;BEGIN
+  A540    E6 5F                 	AND 05FH	;  (A):=INCHAR("MASK LOWER CASE LETTERS TO UPPER")
+  A542    FE 46                 	CP 'F'   	;  IF FLOPPY_BOOT_CHAR THEN
+  A544    20 03                 	JR NZ,T22	;
+  A546    32 A5BC               	LD (FLBFLG),A	;  FLOPPY_BOOT:=TRUE
+  A549    08                    T22:	EX AF,AF'       ;
+  A54A    FB                            EI              ;
+  A54B    ED 4D                         RETI            ;END
+                                ;
+                                ;
+  A54D    08                    FLPINT:	EX AF,AF'	;PROCEDURE FLOPPY_INTERRUPT
+  A54E    D9                    	EXX		;BEGIN
+  A54F    3E FF                 	LD A,0FFH	;  FLOPPY_FLAG:=FALSE
+  A551    32 A5BD               	LD (FL_FLG),A	;
+  A554    3E 05                 	LD A,5		;  "FDC CRITICAL TIMING"
+  A556    3D                    TIMFLI:	DEC A		;
+  A557    20 FD                 	JR NZ,TIMFLI	;
+  A559    DB 04                 	IN A,(FDC)	;
+  A55B    E6 10                 	AND 10H		; "NON DMA MODE TEST"
+  A55D    20 05                 	JR NZ,RRES	;
+  A55F    CD A442               	CALL FLO6	; SENSE INTERRUPT STATUS
+  A562    18 03                 	JR FEXIT	;
+  A564    CD A48A               RRES:	CALL RSULT	; READ RESULT
+  A567    08                    FEXIT:	EX AF,AF'	;
+  A568    D9                    	EXX		;
+  A569    FB                    	EI		;
+  A56A    ED 4D                 	RETI		;END
+                                ;
+                                ;
+                                ;
+  A56C    08                    DISINT:	EX AF,AF'	;PROCEDURE DISPLAY_INTERRUPT
+  A56D    DB 01                 	IN A,(CRTCOM)	;REMOVE INTERRUPT BY READING STATUS
+  A56F    3A A5C2                       LD A,(TIMER)     ;IF TIMER <> 0 THEN TIMER=TIMER-1
+  A572    B7                            OR A            ;
+  A573    28 04                         JR Z,DISIN1     ;
+  A575    3D                            DEC A           ;
+  A576    32 A5C2                       LD (TIMER),A  ;
+  A579    08                    DISIN1: EX AF,AF'       ;
+  A57A    FB                    	EI		;
+  A57B    ED 4D                 	RETI		;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-33
+
+
+                                
+  A57D                          ERR:			;PROCEDURE ERROR_ABORT        
+  A57D    11 B0C0               	LD DE,DSPSTR+160;START WRITING IN DISPLAY BUFFER LINE 2
+  A580    CD A5AC                       CALL MESSWR     ;WRITE MASSAGE
+  A583    D3 1C                 FIN:	OUT (BIB),A	;  PROMT FOR ABORT TO CRT
+  A585    CD A4C6               	CALL FDSTOP	;  STOP_MINI_MOTOR
+  A588    18 FE                 ALOOP:	JR ALOOP        ; ABORT
+                                
+                                
+  A58A    3A A5BE               WRNUM:  LD A,(HSTTRK)    ; WRITE TRACKNUMBER 
+  A58D    21 A62C                       LD HL,MESS2+2   ; UNDER FORMATTING
+  A590    36 30                         LD (HL),'0'     ;
+  A592    2B                            DEC HL          ;
+  A593    36 30                         LD (HL),'0'     ;
+  A595    2B                            DEC HL          ;
+  A596    36 30                         LD (HL),'0'     ;
+  A598    06 64                         LD B,100        ;
+  A59A    CD A5B4                       CALL COMMON     ; CHECK AND MINUS 100
+  A59D    23                            INC HL          ;
+  A59E    06 0A                         LD B,10         ;
+  A5A0    CD A5B4                       CALL COMMON     ; CHECK AND MINUS 10
+  A5A3    23                            INC HL          ;
+  A5A4    B6                            OR (HL)         ;
+  A5A5    77                            LD (HL),A       ; SET 1
+  A5A6    21 A618                       LD HL,MESS1     ; WRITE 'FORMATTING .....'
+  A5A9    11 B070                       LD DE,DSPSTR+80 ; IN LINE 2
+  A5AC    7E                    MESSWR: LD A,(HL)       ; WHILE (HL) <> 0 DO
+  A5AD    B7                            OR A            ;
+  A5AE    C8                            RET Z           ;
+  A5AF    12                            LD (DE),A       ; WRITE_CHAR
+  A5B0    13                            INC DE          ;
+  A5B1    23                            INC HL          ;
+  A5B2    18 F8                         JR MESSWR       ;
+  A5B4    B8                    COMMON: CP B            ; IF A>B THEN
+  A5B5    D8                            RET C           ;
+  A5B6    34                            INC (HL)        ; INC TEXT
+  A5B7    90                            SUB B           ; A=A-B
+  A5B8    18 FA                         JR COMMON       ; ENDIF
+                                ;
+                                PAGE
+	MACRO-80 3.44	09-Dec-81	PAGE	1-34
+
+
+                                
+                                ;DATA AREA
+  A5BA    0000                  BUFFER:	DW 0		;BUFFER USED WHEN FORMATTING RAMDISK
+  A5BC    00                    FLBFLG:	DB 0		;FORCE FLOPPY BOOT FLAG
+  A5BD    00                    FL_FLG:	DB 0		;FLOPPY INTERRUPT FLAG
+  A5BE    00                    HSTTRK:	DB 0		;TRACK COUNT FOR MEMDISK
+  A5BF    00                    HSTSEC: DB 0		;SECTOR COUNT FOR MEMDISK
+  A5C0    0000                  SIZE:   DW 0            ;NUMBER OF BYTES TRANSFER
+  A5C2    00                    TIMER:  DB 0            ;TIMEOUT TICKS IN SYSTEM
+                                ;
+                                ;
+                                ;RUN TIME MESSAGES
+  A5C3    2A 20 44 49           ERMES0:	DB '* DISKETTE ERROR *',0
+  A5C7    53 4B 45 54           
+  A5CB    54 45 20 45           
+  A5CF    52 52 4F 52           
+  A5D3    20 2A 00              
+  A5D6    2A 20 50 4C           ERMES1:	DB '* PLEASE INSERT DISKETTE AND PRESS RESET *',0
+  A5DA    45 41 53 45           
+  A5DE    20 49 4E 53           
+  A5E2    45 52 54 20           
+  A5E6    44 49 53 4B           
+  A5EA    45 54 54 45           
+  A5EE    20 41 4E 44           
+  A5F2    20 50 52 45           
+  A5F6    53 53 20 52           
+  A5FA    45 53 45 54           
+  A5FE    20 2A 00              
+  A601    20 20 00              ERMES2: DB '  ',0
+  A604    2A 20 4E 4F           ERMES3:	DB '* NO SYSTEM FILES *',0
+  A608    20 53 59 53           
+  A60C    54 45 4D 20           
+  A610    46 49 4C 45           
+  A614    53 20 2A 00           
+  A618    46 4F 52 4D           MESS1:  DB 'FORMATTING TRACK: '
+  A61C    41 54 54 49           
+  A620    4E 47 20 54           
+  A624    52 41 43 4B           
+  A628    3A 20                 
+  A62A    30 30 30 00           MESS2:  DB '000',0
+  A62E    20 20 20 20           MESS3:  DB '                                ',0
+  A632    20 20 20 20           
+  A636    20 20 20 20           
+  A63A    20 20 20 20           
+  A63E    20 20 20 20           
+  A642    20 20 20 20           
+  A646    20 20 20 20           
+  A64A    20 20 20 20           
+  A64E    00                    
+  A64F    2A 20 49 4E           MESS4:  DB '* INSERT DISKETTE IN DRIVE A *',0
+  A653    53 45 52 54           
+  A657    20 44 49 53           
+  A65B    4B 45 54 54           
+  A65F    45 20 49 4E           
+  A663    20 44 52 49           
+	MACRO-80 3.44	09-Dec-81	PAGE	1-35
+
+
+  A667    56 45 20 41           
+  A66B    20 2A 00              
+                                ;
+                                ;
+  A66E    53 59 53 4D           SYSM:	DB 'SYSM'
+  A672    53 59 53 43           SYSC:	DB 'SYSC'
+                                ;
+                                ;
+                                ;
+                                ;
+                                ;CRT COLOR DECRIPTION
+  00C1                          COL	EQU	193	;COLOR ATTRIBUTE
+  0000                          BACK	EQU	000	;SELECT BACKGROUND
+  0002                          FORG	EQU	002	;SELECT FORGROUND
+  0004                          BLUE	EQU	004	;BLUE CANON
+  0008                          RED	EQU	008	;RED CANON
+  0010                          GREEN	EQU	016	;GREEN CANON
+                                ;
+                                ;
+                                IF COLOR  
+                                RCCOL:	DB COL+BACK	;NO CANONS GIVES BLACK
+                                	DB COL+FORG+RED+GREEN; GIVING YELLOW
+                                ELSE
+  A676                          RCCOL:                  ;IF NOT COLOR THEN WRITE ('')
+                                ENDIF
+  A676    52 43 37 30                   DB 'RC702E '    ;RC MICRO PROMT TEXT
+  A67A    32 45 20              
+  A67D    41 75 74 6F                   DB 'Autoload Version '
+  A681    6C 6F 61 64           
+  A685    20 56 65 72           
+  A689    73 69 6F 6E           
+  A68D    20                    
+  A68E    33 2E 30                      DB VERS/10+'0','.',VERS MOD 10 +'0'
+  A691    00                    TCMOP:	DB 0   		;
+  A692    20 52 43 37           IDTXT:  DB ' RC700'
+  A696    30 30                 
+  A698    20 52 43 37           CPMTXT: DB ' RC700'
+  A69C    30 30                 
+                                .DEPHASE
+  06B0'                         POS$:			;LIST DEVICE OFF IN MACRO EXPANSION			
+                                .LIST
+                                ;
+                                END 
+	MACRO-80 3.44	09-Dec-81	PAGE	S
+
+
+Macros:
+
+Symbols:
+A588 	ALOOP           A018 	AUTOL           0000 	BACK            
+0001 	BDSEC           0000'	BEGIN           001C 	BIB             
+2000 	BIOSL           0004 	BLUE            A5BA 	BUFFER          
+A28C 	CATCH           A500 	CEXIT           00F0 	CH0ADR          
+00F2 	CH1ADR          00F4 	CH2ADR          00D3 	CHARDA          
+00D1 	CHARLN          00FC 	CLBP            0000 	CLR0            
+0001 	CLR1            0002 	CLR2            00C1 	COL             
+0000 	COLOR           A517 	COMBUF          A5B4 	COMMON          
+A36A 	COMSTR          0010 	COMV            A232 	CPCOMB          
+A698 	CPMTXT          0001 	CRTCOM          0000 	CRTDAT          
+00A0 	CRTEN           0000 	CRTRES          000C 	CTCCH0          
+000D 	CTCCH1          000E 	CTCCH2          000F 	CTCCH3          
+0001 	CTCCNT          0010 	CTCINT          00D7 	CTCMOD          
+0003 	CTCRES          A519 	CURID           A364 	DIRERR          
+A579 	DISIN1          A56C 	DISINT          00F8 	DMACOM          
+00FB 	DMAMOD          000F 	DMAMSK          00F9 	DMAREQ          
+00D2 	DOTLN           0004 	DR0H1           B020 	DSPSTR          
+00FF 	DUADTL          000E 	DUAGPL          0042 	DUALC           
+A53A 	DUMINT          A50B 	EEXIT           A511 	EEXIT1          
+B00D 	ERFLAG          A5C3 	ERMES0          A5D6 	ERMES1          
+A601 	ERMES2          A604 	ERMES3          A57D 	ERR             
+A22C 	ERXIT           0004 	FDC             A522 	FDCINI          
+0005 	FDD             A4B4 	FDSTAR          A4C6 	FDSTOP          
+A3DF 	FD_RDY          A567 	FEXIT           0020 	FILDI           
+0013 	FILTY           A583 	FIN             A5BC 	FLBFLG          
+A408 	FLO2            A411 	FLO3            A41A 	FLO4            
+A442 	FLO6            A45F 	FLO7            A429 	FLO8            
+A201 	FLOPPY          A54D 	FLPINT          A4CB 	FLRTRK          
+A5BD 	FL_FLG          0800 	FMOVE           0012 	FMOVS           
+0002 	FORG            00FF 	FULMSK          A3CD 	FW1             
+0010 	GREEN           A5BF 	HSTSEC          A5BE 	HSTTRK          
+1000 	IDBADR          A278 	IDBOOT          0B60 	IDCAT           
+A344 	IDFIN           A2E5 	IDRL1           A322 	IDRL2           
+A692 	IDTXT           A3A4 	IFDC0           A3B1 	IFDC1           
+A25E 	IMBUF           A3F4 	INDISK          A261 	INID            
+A393 	INITFL          A000 	ITRTAB          A53D 	KBINT           
+0012 	KEYCON          0010 	KEYDAT          0002 	KINT            
+0080 	LCURS           A1D3 	LDGEN           A1DF 	LDLP            
+A1E4 	LDLP1           A14C 	LOOP            A31F 	MAXIRD          
+A199 	MDCOM           A1A6 	MDCOM1          A0F1 	MDDISK          
+A132 	MDFORM          A197 	MDRD            00EF 	MDSEC           
+00EE 	MDST            00EE 	MDTRK           A1C5 	MDWAIT          
+A193 	MDWR            B00F 	MEMADR          A0C6 	MEMDSK          
+A618 	MESS1           A62A 	MESS2           A62E 	MESS3           
+A64F 	MESS4           A5AC 	MESSWR          07FF 	MIBYT0          
+0FFF 	MIBYT1          0010 	MINEOT          0500 	MINS1           
+0044 	MODE0           0045 	MODE1           005A 	MODE2           
+004B 	MODE3           004F 	MODIN           0012'	MOVADR          
+0086 	MTRK            0CFF 	MXBYT0          19FF 	MXBYT1          
+000E 	OUTCAT          004F 	PARAM1          0098 	PARAM2          
+007A 	PARAM3          004D 	PARAM4          0007 	PDIINT          
+0087 	PENINT          06B0'	POS$            A000 	PRAM            
+	MACRO-80 3.44	09-Dec-81	PAGE	S-1
+
+
+00E0 	PRECC           0019 	RAMEN           A676 	RCCOL           
+A378 	RDL11           A4F0 	RDOK?           A373 	READ            
+A4DD 	READOK          A3C2 	RECREP          0008 	RED             
+A2C4 	REPATR          A4D1 	REPCOM          A28F 	REPENT          
+A24F 	REPRD2          B011 	REPTIM          A4AC 	RLOOP1          
+2000 	ROM2            A564 	RRES            A48F 	RSL1            
+A49B 	RSL2            B003 	RSTAB           A4A3 	RSTAT           
+A48A 	RSULT           0D00 	SBID            B00E 	SECTOR          
+0004 	SET0            0005 	SET1            A5C0 	SIZE            
+00FA 	SMSK            A476 	SREP1           FFFF 	STACK           
+0023 	STDISP          A526 	STPDMA          0014 	SW1             
+A672 	SYSC            A66E 	SYSM            A549 	T22             
+A691 	TCMOP           A5C2 	TIMER           A556 	TIMFLI          
+A520 	TRBYT           B000 	TRK             001E 	VERS            
+A4BB 	W1              A4BD 	W2              00F1 	WCREG0          
+00F3 	WCREG1          00F5 	WCREG2          A4E2 	WFLP            
+A0C0 	WL1             A0DC 	WLOOP           A0E8 	WLOOP1          
+A58A 	WRNUM           
+
+
+
+No Fatal error(s)
+
+
+    A526 	STPDMA          0014 	SW1       

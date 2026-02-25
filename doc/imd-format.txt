@@ -1,0 +1,80 @@
+IMD File Format Reference
+=========================
+
+The RC700 emulator uses the ImageDisk (IMD) format for floppy disk images.
+This document describes the binary format as implemented in disk.c.
+
+File Structure
+--------------
+
+  Header:
+    "IMD 1.18: DD/MM/YYYY HH:MM:SS\r\n"
+    Optional label text (ASCII)
+    0x1A (SUB, marks end of header)
+
+  Tracks (repeated for each track in the image):
+    Track header (5 bytes):
+      Byte 0: Mode (encoding + transfer rate)
+      Byte 1: Cylinder number (0-79)
+      Byte 2: Head number (0 or 1)
+      Byte 3: Number of sectors
+      Byte 4: Sector size code
+
+    Physical sector map:
+      N bytes (one per sector), each giving the physical sector number
+
+    Sector data (repeated for each sector):
+      Type byte, followed by data depending on type
+
+Mode Byte
+---------
+
+  0 = 500 kbps FM (single-density)
+  1 = 300 kbps FM
+  2 = 250 kbps FM
+  3 = 500 kbps MFM (double-density)
+  4 = 300 kbps MFM
+  5 = 250 kbps MFM
+
+Sector Size Code
+----------------
+
+  sector_size = 128 * 2^code
+
+  0 = 128 bytes
+  1 = 256 bytes
+  2 = 512 bytes
+  3 = 1024 bytes
+  4 = 2048 bytes
+  5 = 4096 bytes
+
+Sector Data Types
+-----------------
+
+  0x00  Sector unavailable (bad/unreadable), no data follows
+  0x01  Normal data, full sector of data follows
+  0x02  Compressed, single fill byte follows (all bytes in sector are same)
+  0x03  Normal data with deleted-data address mark
+  0x04  Compressed with deleted-data address mark
+  0x05  Normal data with read error
+  0x06  Compressed with read error
+  0x07  Deleted data with read error
+  0x08  Compressed, deleted, with read error
+
+Emulator Limits (disk.h)
+------------------------
+
+  MAX_CYLINDERS = 80
+  MAX_SIDES     = 2
+  MAX_SECTORS   = 30
+
+Implementation Notes
+--------------------
+
+  - load_disk_image() reads the entire file into memory, then parses in-place.
+    Sector data pointers point directly into the loaded buffer.
+  - save_disk_image() auto-compresses sectors where all bytes are identical.
+  - format_disk_image() creates a blank disk with 0x00 fill, 0-based physical
+    sector numbering, and 300 kbps transfer rate.
+  - The FDC (fdc.c) uses find_sector() to look up sectors by physical number,
+    matching the uPD765A R register value against sector->physical.

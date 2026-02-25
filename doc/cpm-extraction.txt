@@ -1,0 +1,220 @@
+Extracting CP/M Files from Disk Images
+=======================================
+
+This document describes how to extract files from a CP/M disk image when
+you cannot boot the image in the emulator (e.g. BIOS geometry mismatch).
+
+
+Using the cpmdisk tool (for rccpm22-format disks)
+--------------------------------------------------
+
+  make cpmdisk
+  ./cpmdisk disk.imd              # list files
+  ./cpmdisk disk.imd outputdir/   # extract files
+
+  cpmdisk.c is hardcoded for the rccpm22 format:
+    BLOCKSIZE       = 2048
+    SECTORSIZE      = 512
+    SECTS_PER_TRACK = 9
+    DISK_SIDES      = 2
+    RESERVED_TRACKS = 4
+    interleave      = {0, 2, 4, 6, 8, 1, 3, 5, 7}
+
+
+Determining unknown CP/M parameters
+------------------------------------
+
+When the disk format differs from rccpm22, you need to figure out the CP/M
+disk parameters. Here is the procedure (Python recommended):
+
+1. FIND THE DIRECTORY
+
+   Scan every 32 bytes of the raw binary for valid CP/M directory entries:
+   - Byte 0 (user): 0-15 for active, 0xE5 for deleted
+   - Bytes 1-8: printable ASCII filename (space-padded)
+   - Bytes 9-11: printable ASCII extension
+
+   Note which (track, side, sector) offsets contain the entries.
+
+2. DETERMINE RESERVED TRACKS
+
+   The directory is at the start of the data area. If the directory is at
+   cylinder C, the reserved tracks = C * sides (counting each side as one
+   logical track). For the RC703 format: directory at cylinder 2 = 4 reserved
+   logical tracks.
+
+3. DETERMINE BLOCK SIZE AND DIRECTORY BLOCKS
+
+   Look at the allocation map (bytes 16-31) of the first directory entry.
+   - If block numbers alternate with zeros (04 00 06 00 ...), they're 16-bit LE
+   - If all 16 bytes are used (04 06 07 08 ...), they're 8-bit
+   - 16-bit when DSM > 255, 8-bit when DSM <= 255
+
+   The first file's lowest block number tells you how many directory blocks
+   there are (e.g. first file at block 4 means blocks 0-3 are directory).
+
+   Block size is typically 1024, 2048, or 4096. Calculate from total disk
+   capacity: DSM = total_data_bytes / block_size - 1
+
+4. DETERMINE SECTOR INTERLEAVE
+
+   The interleave (XLAT) table maps logical sector numbers to physical sector
+   numbers. Common patterns:
+
+   No interleave (identity):
+     {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+
+   2:1 skew (10 sectors):
+     {0, 2, 4, 6, 8, 1, 3, 5, 7, 9}
+
+   2:1 skew (9 sectors):
+     {0, 2, 4, 6, 8, 1, 3, 5, 7}
+
+   To determine: try each table, read a .MAC or .TXT file from the disk,
+   and check if the output is coherent text. Wrong interleave produces
+   scrambled but partially readable data.
+
+5. BRUTE-FORCE APPROACH
+
+   Try combinations of parameters and check if block N of the first file
+   produces valid content:
+
+     for xlat in [candidate tables]:
+       for reserved in [2, 4, 6]:
+         for blocksize in [1024, 2048, 4096]:
+           read block N using these parameters
+           check if output is valid text/code
+
+6. VERIFY EXTENT HANDLING
+
+   CP/M 2.2 extent number = XL + XH * 32 (when EXM = 0)
+   Each extent holds up to block_size * (8 or 16) bytes depending on
+   whether block numbers are 16-bit or 8-bit.
+
+   Common pitfall: extent_num = (XL >> 1) is WRONG when EXM = 0.
+   Use extent_num = XL + XH * 32.
+
+
+Worked example: RC703 DIV ROA (80-track, 10-sector)
+----------------------------------------------------
+
+Parameters (verified):
+  Block size:       2048
+  Sector size:      512
+  Sectors/track:    10
+  Sides:            2
+  Reserved tracks:  4 (= 2 cylinders * 2 sides)
+  Directory blocks: 4 (blocks 0-3)
+  Block numbers:    16-bit (DSM ~= 389)
+  Interleave:       {0, 2, 4, 6, 8, 1, 3, 5, 7, 9}
+  EXM:              0
+
+Sector-to-offset mapping:
+  sectno = block * 4 + sector_within_block   (0..3)
+  logical_track = sectno / 10 + 4            (4 = reserved tracks)
+  cylinder = logical_track / 2
+  head     = logical_track % 2
+  physical_sector = XLAT[sectno % 10]
+  byte_offset = (cylinder * 20 + head * 10 + physical_sector) * 512
+
+Note: Physical sector 0 of cylinder 2 side 0 contains BIOS code, not
+directory data. It falls within the directory blocks but those 16 entries
+have user numbers > 15, so they are skipped during directory parsing.
+
+
+Full extraction script
+----------------------
+
+See the Python script used for the RC703_DIV_ROA extraction:
+
+  #!/usr/bin/env python3
+  import struct, os
+
+  data = open("RC703_DIV_ROA.bin", "rb").read()
+  outdir = "RC703_DIV_ROA"
+  os.makedirs(outdir, exist_ok=True)
+
+  SECTOR_SIZE = 512
+  SECTS_PER_TRACK = 10
+  SIDES = 2
+  BLOCK_SIZE = 2048
+  SECTS_PER_BLOCK = BLOCK_SIZE // SECTOR_SIZE
+  RESERVED_TRACKS = 4
+  DIR_BLOCKS = 4
+  XLAT = [0, 2, 4, 6, 8, 1, 3, 5, 7, 9]
+
+  def read_block(blkno):
+      result = bytearray()
+      for i in range(SECTS_PER_BLOCK):
+          sectno = blkno * SECTS_PER_BLOCK + i
+          t = sectno // SECTS_PER_TRACK + RESERVED_TRACKS
+          c = t // SIDES
+          h = t % SIDES
+          phys_s = XLAT[sectno % SECTS_PER_TRACK]
+          offset = (c * SIDES * SECTS_PER_TRACK + h * SECTS_PER_TRACK + phys_s) * SECTOR_SIZE
+          result.extend(data[offset:offset + SECTOR_SIZE])
+      return bytes(result)
+
+  # Read directory (blocks 0..DIR_BLOCKS-1)
+  directory = bytearray()
+  for i in range(DIR_BLOCKS):
+      directory.extend(read_block(i))
+
+  # Parse directory entries (16-bit block numbers)
+  files = {}
+  for i in range(0, len(directory), 32):
+      entry = directory[i:i+32]
+      if len(entry) < 32:
+          break
+      user = entry[0]
+      if user == 0xE5 or user > 15:
+          continue
+
+      name = bytes(b & 0x7F for b in entry[1:9]).decode('ascii', errors='replace').rstrip()
+      ext  = bytes(b & 0x7F for b in entry[9:12]).decode('ascii', errors='replace').rstrip()
+      xl, bc, xh, rc = entry[12], entry[13], entry[14], entry[15]
+
+      blocks = []
+      for j in range(8):
+          blk = struct.unpack_from('<H', entry, 16 + j*2)[0]
+          if blk != 0:
+              blocks.append(blk)
+
+      filename = f"{name}.{ext}" if ext else name
+      if not name.strip() or any(ord(c) < 0x20 for c in name):
+          continue
+
+      extent_num = xl + xh * 32   # EXM = 0
+
+      key = (user, filename)
+      if key not in files:
+          files[key] = {'extents': {}}
+      files[key]['extents'][extent_num] = {'blocks': blocks, 'rc': rc}
+
+  # Extract each file
+  for (user, filename), finfo in sorted(files.items()):
+      max_ext = max(finfo['extents'].keys())
+      last = finfo['extents'][max_ext]
+      total_size = (max_ext * 128 + last['rc']) * 128
+
+      file_data = bytearray()
+      for ext_num in sorted(finfo['extents'].keys()):
+          for blk in finfo['extents'][ext_num]['blocks']:
+              file_data.extend(read_block(blk))
+
+      if total_size < len(file_data):
+          file_data = file_data[:total_size]
+
+      # Strip trailing CP/M EOF (0x1A) for text files
+      ext_lower = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+      if ext_lower in ('mac', 'prn', 'txt', 'asm', 'sub', 'bak'):
+          while file_data and file_data[-1] == 0x1A:
+              file_data = file_data[:-1]
+
+      safe_fn = ''.join(c if c.isalnum() or c in '._-' else '_' for c in filename)
+      if user > 0:
+          safe_fn = f"user{user}_{safe_fn}"
+
+      with open(os.path.join(outdir, safe_fn), 'wb') as f:
+          f.write(file_data)
+      print(f"  {user:2d} {filename:<16s} {len(file_data):>8d} bytes")
