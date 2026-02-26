@@ -42,9 +42,11 @@ struct ftp {
 struct ftp ftp;
 
 void ftp_reset() {
+  char *dir = ftp.dir;
   L(printf("ftp: reset\n"));
   if (ftp.file) fclose(ftp.file);
   memset(&ftp, 0, sizeof(struct ftp));
+  ftp.dir = dir;
 }
 
 void ftp_filename() {
