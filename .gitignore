@@ -1,0 +1,26 @@
+# Build artifacts
+rc700
+rc700-sdl2
+rc700-curses
+rc700-vt100
+rc700-debug
+rc700d
+rom2struct
+ana2imd
+imd2bin
+imdinfo
+readbios
+rom2hex
+cpmdisk
+comaldisk
+blankimd
+raw2imd
+imdsectofs
+rxtext
+*.dSYM/
+
+# IDE
+.idea/
+
+# Misc
+zout/
